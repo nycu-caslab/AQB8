@@ -35,7 +35,7 @@ GPGPUSIM_VERSION=$(shell cat $(GPGPUSIM_ROOT)/version | awk '/Version/ {print $$
 GIT_COMMIT := $(shell git log -n 1 | head -1 | sed -re 's/commit (.*)/\1/')
 GIT_FILES_CHANGED_A:=$(shell git diff --numstat | wc | sed -re 's/^\s+([0-9]+).*/\1./')
 GIT_FILES_CHANGED:= $(GIT_FILES_CHANGED_A)$(shell git diff --numstat --cached | wc | sed -re 's/^\s+([0-9]+).*/\1/')
-GPGPUSIM_BUILD := gpgpu-sim_git-commit-$(GIT_COMMIT)_modified_$(GIT_FILES_CHANGED)
+GPGPUSIM_BUILD := dummy-build-id
 endif
 
 # Detect CUDA Runtime Version 

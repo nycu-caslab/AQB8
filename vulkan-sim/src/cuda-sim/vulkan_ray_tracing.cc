@@ -115,13 +115,10 @@ std::map<void*, void*> VulkanRayTracing::blas_addr_map;
 
 void *VulkanRayTracing::tlas_addr;
 
-void *VulkanRayTracing::int_bvh_addr;
-void *VulkanRayTracing::int_bvh_clusters_addr;
-void *VulkanRayTracing::int_bvh_trigs_addr;
-void *VulkanRayTracing::int_bvh_nodes_addr;
-void *VulkanRayTracing::int_bvh_primitive_indices_addr;
-
-int_bvh_t VulkanRayTracing::int_bvh;
+void *VulkanRayTracing::bvh_trigs_addr;
+void *VulkanRayTracing::bvh_nodes_addr;
+void *VulkanRayTracing::bvh_primitive_indices_addr;
+bvh_t VulkanRayTracing::bvh;
 
 bool VulkanRayTracing::dumped = false;
 
@@ -424,164 +421,7 @@ void VulkanRayTracing::init(uint32_t launch_width, uint32_t launch_height)
 
 // clang-format on
 
-int32_t VulkanRayTracing::floor_to_int32(float x)
-{
-    assert(!std::isnan(x));
-    if (x < -2147483648.0f)
-        return -2147483648;
-    if (x >= 2147483648.0f)
-        return 2147483647;
-    return (int)floorf(x);
-}
-
-int32_t VulkanRayTracing::ceil_to_int32(float x)
-{
-    assert(!std::isnan(x));
-    if (x <= -2147483649.0f)
-        return -2147483648;
-    if (x > 2147483647.0f)
-        return 2147483647;
-    return (int)ceilf(x);
-}
-
-int_w_t VulkanRayTracing::get_int_w(const std::array<float, 3> &w)
-{
-    int_w_t int_w{};
-
-    for (int i = 0; i < 3; i++)
-    {
-        auto &wi = reinterpret_cast<const uint32_t &>(w[i]);
-
-        bool sign = wi & 0x80000000;
-        uint32_t exponent = (wi >> 23) & 0xff;
-        uint32_t mantissa = wi & 0x7fffff;
-
-        uint32_t near_exponent = (exponent - 127) & 0b11111;
-        uint32_t near_mantissa = mantissa >> 16;
-        uint32_t near = (near_exponent << 7) | near_mantissa;
-
-        uint32_t far = near + 1;
-        uint32_t far_exponent = far >> 7;
-        uint32_t far_mantissa = far & 0b1111111;
-
-        int_w.iw[i] = sign;
-        near_mantissa |= 0b10000000;
-        far_mantissa |= 0b10000000;
-
-        if (sign)
-        {
-            int_w.rw_l[i] = far_exponent;
-            int_w.qw_l[i] = far_mantissa;
-            int_w.rw_h[i] = near_exponent;
-            int_w.qw_h[i] = near_mantissa;
-        }
-        else
-        {
-            int_w.rw_l[i] = near_exponent;
-            int_w.qw_l[i] = near_mantissa;
-            int_w.rw_h[i] = far_exponent;
-            int_w.qw_h[i] = far_mantissa;
-        }
-    }
-
-    return int_w;
-}
-
-decoded_data_t VulkanRayTracing::decode_data(uint16_t data)
-{
-    decoded_data_t decoded_data{};
-    if (data & 0x8000)
-    {
-        int field_b = ((data & 0x7fff) >> field_c_bits);
-        int field_c = (data & ((1 << field_c_bits) - 1));
-        if (field_b == 0)
-        {
-            decoded_data.child_type = child_type_t::INTERNAL;
-        }
-        else
-        {
-            decoded_data.child_type = child_type_t::LEAF;
-            decoded_data.num_trigs = field_b;
-        }
-        decoded_data.idx = field_c;
-    }
-    else
-    {
-        decoded_data.child_type = child_type_t::SWITCH;
-        decoded_data.idx = data;
-    }
-    return decoded_data;
-}
-
-std::pair<bool, float> VulkanRayTracing::intersect_bbox(const std::array<bool, 3> &octant,
-                                                        const std::array<float, 3> &w,
-                                                        const float *x,
-                                                        const std::array<float, 3> &b,
-                                                        float tmax)
-{
-    float entry[3], exit[3];
-    entry[0] = w[0] * x[0 + octant[0]] + b[0];
-    entry[1] = w[1] * x[2 + octant[1]] + b[1];
-    entry[2] = w[2] * x[4 + octant[2]] + b[2];
-    exit[0] = w[0] * x[1 - octant[0]] + b[0];
-    exit[1] = w[1] * x[3 - octant[1]] + b[1];
-    exit[2] = w[2] * x[5 - octant[2]] + b[2];
-
-    float entry_ = fmaxf(entry[0], fmaxf(entry[1], fmaxf(entry[2], 0.0f)));
-    float exit_ = fminf(exit[0], fminf(exit[1], fminf(exit[2], tmax)));
-
-    if (entry_ <= exit_)
-        return std::make_pair(true, entry_);
-    else
-        return std::make_pair(false, 0);
-}
-
-std::pair<bool, int32_t> VulkanRayTracing::intersect_int_bbox(int32_t qy_max,
-                                                              const int_w_t &int_w,
-                                                              const uint8_t *qx,
-                                                              const int32_t *qb_l,
-                                                              const int32_t *qb_h)
-{
-    const int32_t qx_a[3] = {
-        int_w.iw[0] ? qx[1] : qx[0],
-        int_w.iw[1] ? qx[3] : qx[2],
-        int_w.iw[2] ? qx[5] : qx[4]};
-
-    const int32_t qx_b[3] = {
-        int_w.iw[0] ? qx[0] : qx[1],
-        int_w.iw[1] ? qx[2] : qx[3],
-        int_w.iw[2] ? qx[4] : qx[5]};
-
-    int32_t entry[3], exit[3];
-
-    entry[0] = (int_w.qw_l[0] * qx_a[0]) << int_w.rw_l[0];
-    entry[0] = (int_w.iw[0] ? -entry[0] : entry[0]) + qb_l[0];
-
-    entry[1] = (int_w.qw_l[1] * qx_a[1]) << int_w.rw_l[1];
-    entry[1] = (int_w.iw[1] ? -entry[1] : entry[1]) + qb_l[1];
-
-    entry[2] = (int_w.qw_l[2] * qx_a[2]) << int_w.rw_l[2];
-    entry[2] = (int_w.iw[2] ? -entry[2] : entry[2]) + qb_l[2];
-
-    exit[0] = (int_w.qw_h[0] * qx_b[0]) << int_w.rw_h[0];
-    exit[0] = (int_w.iw[0] ? -exit[0] : exit[0]) + qb_h[0];
-
-    exit[1] = (int_w.qw_h[1] * qx_b[1]) << int_w.rw_h[1];
-    exit[1] = (int_w.iw[1] ? -exit[1] : exit[1]) + qb_h[1];
-
-    exit[2] = (int_w.qw_h[2] * qx_b[2]) << int_w.rw_h[2];
-    exit[2] = (int_w.iw[2] ? -exit[2] : exit[2]) + qb_h[2];
-
-    int32_t entry_ = std::max({entry[0], entry[1], entry[2], 0});
-    int32_t exit_ = std::min({exit[0], exit[1], exit[2], qy_max});
-
-    if (entry_ <= exit_)
-        return std::make_pair(true, entry_);
-    else
-        return std::make_pair(false, 0);
-}
-
-std::pair<bool, float> VulkanRayTracing::intersect_trig(int_trig_t *trigs, const Ray &ray)
+std::pair<bool, float> VulkanRayTracing::intersect_trig(trig_t *trigs, const Ray &ray)
 {
     bool LeftHandedNormal = true;
     bool NonZeroTolerance = false;
@@ -662,7 +502,7 @@ void VulkanRayTracing::traceRay(VkAccelerationStructureKHR _topLevelAS,
     }
     //```
 
-    uint32_t best_trig_offset = -1;
+    uint32_t best_prim_id = -1;
     Traversal_data traversal_data;
 
     traversal_data.n_all_hits = 0;
@@ -729,16 +569,6 @@ void VulkanRayTracing::traceRay(VkAccelerationStructureKHR _topLevelAS,
         std::signbit(objectRay.get_direction().x),
         std::signbit(objectRay.get_direction().y),
         std::signbit(objectRay.get_direction().z)};
-    std::array<float, 3> w = {
-        1.0f / objectRay.get_direction().x,
-        1.0f / objectRay.get_direction().y,
-        1.0f / objectRay.get_direction().z};
-    std::array<float, 3> b = {
-        -objectRay.get_origin().x * w[0],
-        -objectRay.get_origin().y * w[1],
-        -objectRay.get_origin().z * w[2]};
-    int_w_t int_w = get_int_w(w);
-    uint8_t global_tmax_version = 0;
 
     // Set thit to max
     float min_thit = ray.dir_tmax.w;
@@ -752,22 +582,17 @@ void VulkanRayTracing::traceRay(VkAccelerationStructureKHR _topLevelAS,
     {
         std::ofstream outfile(time_offset + "_memdump.txt", std::ios_base::app);
 
-        if (type == TransactionType::INT_BVH_CLUSTER)
-        {
-            outfile << "CLUS " << index << std::endl;
-        }
-
-        if (type == TransactionType::INT_BVH_TRIG)
+        if (type == TransactionType::BVH_TRIG)
         {
             outfile << "TRIG " << index << std::endl;
         }
 
-        if (type == TransactionType::INT_BVH_NODE)
+        if (type == TransactionType::BVH_NODE)
         {
             outfile << "NODE " << index << std::endl;
         }
 
-        if (type == TransactionType::INT_BVH_PRIMITIVE_INSTANCE)
+        if (type == TransactionType::BVH_PRIMITIVE_INSTANCE)
         {
             outfile << "IDX " << index << std::endl;
         }
@@ -782,156 +607,124 @@ void VulkanRayTracing::traceRay(VkAccelerationStructureKHR _topLevelAS,
         uint64_t base_addr;
         uint32_t length;
 
-        if (type == TransactionType::INT_BVH_CLUSTER)
+        if (type == TransactionType::BVH_TRIG)
         {
-            base_addr = int_bvh_clusters_addr;
-            length = INT_BVH_CLUSTER_length;
+            base_addr = bvh_trigs_addr;
+            length = BVH_TRIG_length;
         }
 
-        if (type == TransactionType::INT_BVH_TRIG)
+        if (type == TransactionType::BVH_NODE)
         {
-            base_addr = int_bvh_trigs_addr;
-            length = INT_BVH_TRIG_length;
+            base_addr = bvh_nodes_addr;
+            length = BVH_NODE_length;
         }
 
-        if (type == TransactionType::INT_BVH_NODE)
+        if (type == TransactionType::BVH_PRIMITIVE_INSTANCE)
         {
-            base_addr = int_bvh_nodes_addr;
-            length = INT_BVH_NODE_length;
-        }
-
-        if (type == TransactionType::INT_BVH_PRIMITIVE_INSTANCE)
-        {
-            base_addr = int_bvh_primitive_indices_addr;
-            length = INT_BVH_PRIMITIVE_INSTANCE_length;
+            base_addr = bvh_primitive_indices_addr;
+            length = BVH_PRIMITIVE_INSTANCE_length;
         }
 
         uint64_t target_addr = base_addr + index * length;
-        uint64_t align_addr = target_addr & ~(INT_BVH_ALIGNMENT - 1);
-        uint64_t next_addr = align_addr + INT_BVH_ALIGNMENT;
+        uint64_t align_addr = target_addr & ~(BVH_ALIGNMENT - 1);
+        uint64_t next_addr = align_addr + BVH_ALIGNMENT;
 
         if (next_addr - target_addr > length)
         {
             transactions.push_back(MemoryTransactionRecord((uint8_t *)((uint64_t)align_addr),
-                                                           INT_BVH_ALIGNMENT, type));
+                                                           BVH_ALIGNMENT, type));
             ctx->func_sim->g_rt_mem_access_type[static_cast<int>(type)] += 1;
         }
         else
         {
             transactions.push_back(MemoryTransactionRecord((uint8_t *)((uint64_t)align_addr),
-                                                           INT_BVH_ALIGNMENT, type));
+                                                           BVH_ALIGNMENT, type));
             transactions.push_back(MemoryTransactionRecord((uint8_t *)((uint64_t)next_addr),
-                                                           INT_BVH_ALIGNMENT, type));
+                                                           BVH_ALIGNMENT, type));
             ctx->func_sim->g_rt_mem_access_type[static_cast<int>(type)] += 2;
         }
     };
 
-    cluster_data_t cluster_data = {.num_nodes_in_stk_2 = 0};
-    std::stack<cluster_data_t> stk_1;
-    std::stack<std::pair<uint16_t, uint16_t>> stk_2; // [local_node_idx, cluster_idx]
-
-    auto update_cluster_data = [&](uint16_t cluster_idx) -> bool
+    auto intersect = [&](const float *bounds, const Ray &ray) -> std::pair<float, float>
     {
-        int_cluster_t cluster = int_bvh.clusters[cluster_idx];
-        transaction_record(cluster_idx, TransactionType::INT_BVH_CLUSTER);
+        float entry[3], exit_point[3];
 
-        // Get root cluster and set min/max
-        if (!ctx->func_sim->g_rt_world_set && cluster_idx == 0)
+        float ray_origin[3] = {
+            ray.get_origin().x,
+            ray.get_origin().y,
+            ray.get_origin().z};
+
+        float inverse_direction[3] = {
+            1.0f / ray.get_direction().x,
+            1.0f / ray.get_direction().y,
+            1.0f / ray.get_direction().z};
+
+        auto add_ulp_magnitude = [](float x, unsigned ulps) -> float
         {
-            int_cluster_t root_cluster = cluster;
+            if (!std::isfinite(x))
+                return x;
 
-            float3 lo, hi;
-            lo.x = root_cluster.ref_bounds[0];
-            lo.y = root_cluster.ref_bounds[2];
-            lo.z = root_cluster.ref_bounds[4];
+            uint32_t xi;
+            std::memcpy(&xi, &x, sizeof(float));
+            xi += ulps;
+            std::memcpy(&x, &xi, sizeof(float));
+            return x;
+        };
 
-            hi.x = root_cluster.ref_bounds[1];
-            hi.y = root_cluster.ref_bounds[3];
-            hi.z = root_cluster.ref_bounds[5];
+        float padded_inverse_direction[3] = {
+            add_ulp_magnitude(inverse_direction[0], 2),
+            add_ulp_magnitude(inverse_direction[1], 2),
+            add_ulp_magnitude(inverse_direction[2], 2)};
 
-            ctx->func_sim->g_rt_world_min = min(ctx->func_sim->g_rt_world_min, lo);
-            ctx->func_sim->g_rt_world_max = min(ctx->func_sim->g_rt_world_max, hi);
-            ctx->func_sim->g_rt_world_set = true;
-        }
-
-        std::pair<bool, float> y_ref_pair = intersect_bbox(octant, w, cluster.ref_bounds, b, objectRay.get_tmax());
-        if (!y_ref_pair.first)
-            return false;
-
-        if (cluster_data.num_nodes_in_stk_2 != 0)
-            stk_1.push(cluster_data);
-
-        cluster_data.cluster_idx = cluster_idx;
-        cluster_data.local_nodes = &int_bvh.nodes[cluster.node_offset];
-        cluster_data.local_trigs = &int_bvh.trigs[cluster.trig_offset];
-
-        cluster_data.node_offset = cluster.node_offset;
-        cluster_data.trig_offset = cluster.trig_offset;
-
-        cluster_data.inv_sx_inv_sw = cluster.inv_sx_inv_sw;
-        cluster_data.y_ref = y_ref_pair.second;
-
-        for (int i = 0; i < 3; i++)
+        auto intersect_axis = [&](bool IsMin, int axis, float p) -> float
         {
-            cluster_data.qb_l[i] = floor_to_int32((b[i] - cluster_data.y_ref + cluster.ref_bounds[2 * i] * w[i]) *
-                                                  cluster_data.inv_sx_inv_sw);
-            cluster_data.qb_h[i] = cluster_data.qb_l[i] + 1;
-        }
+            return (p - ray_origin[axis]) * (IsMin ? inverse_direction[axis] : padded_inverse_direction[axis]);
+        };
 
-        cluster_data.tmax_version = global_tmax_version;
-        cluster_data.qy_max = ceil_to_int32((objectRay.get_tmax() - cluster_data.y_ref) * cluster_data.inv_sx_inv_sw);
-        cluster_data.num_nodes_in_stk_2 = 0;
-        return true;
+        entry[0] = intersect_axis(true, 0, bounds[0 * 2 + octant[0]]);
+        entry[1] = intersect_axis(true, 1, bounds[1 * 2 + octant[1]]);
+        entry[2] = intersect_axis(true, 2, bounds[2 * 2 + octant[2]]);
+        exit_point[0] = intersect_axis(false, 0, bounds[0 * 2 + 1 - octant[0]]);
+        exit_point[1] = intersect_axis(false, 1, bounds[1 * 2 + 1 - octant[1]]);
+        exit_point[2] = intersect_axis(false, 2, bounds[2 * 2 + 1 - octant[2]]);
+
+        return std::make_pair(
+            robust_max(entry[0], robust_max(entry[1], robust_max(entry[2], ray.get_tmin()))),
+            robust_min(exit_point[0], robust_min(exit_point[1], robust_min(exit_point[2], ray.get_tmax()))));
     };
 
-    // intersect root cluster
-    bool start_tracing = update_cluster_data(0);
-
-    uint16_t curr_local_node_idx = 0;
-    auto update_node_and_cluster = [&](const decoded_data_t &decoded_data) -> bool
+    auto intersect_leaf = [&](const uint32_t &primitive_index,
+                              const uint32_t &primitive_count,
+                              const Ray &ray) -> void
     {
-        switch (decoded_data.child_type)
-        {
-        case child_type_t::INTERNAL:
-            curr_local_node_idx = decoded_data.idx;
-            return true;
-        case child_type_t::SWITCH:
-            curr_local_node_idx = 0;
-            return update_cluster_data(decoded_data.idx);
-        default:
-            assert(false);
-        }
-    };
+        assert(primitive_count);
+        size_t begin = primitive_index;
+        size_t end = begin + primitive_count;
 
-    auto intersect_leaf = [&](const decoded_data_t &decoded_data, const cluster_data_t &curr_cluster, const Ray &ray) -> uint32_t
-    {
-        assert(decoded_data.child_type == child_type_t::LEAF);
-        uint32_t best_trig_offset = -1;
-
-        for (int i = 0; i < decoded_data.num_trigs; i++)
+        for (size_t i = begin; i < end; ++i)
         {
             total_nodes_accessed++;
 
-            uint32_t trig_offset = curr_cluster.trig_offset + decoded_data.idx + i;
-            int_trig_t *tmp_trigs = &int_bvh.trigs[trig_offset];
-            transaction_record(trig_offset, TransactionType::INT_BVH_TRIG);
+            uint32_t prim_id = (uint32_t)bvh.primitive_indices[i];
+            transaction_record(i, TransactionType::BVH_PRIMITIVE_INSTANCE);
+
+            trig_t *tmp_trigs = &bvh.trigs[prim_id];
+            transaction_record(prim_id, TransactionType::BVH_TRIG);
 
             auto hit = intersect_trig(tmp_trigs, ray);
 
             if (hit.first)
             {
                 ray.set_tmax(hit.second);
-                best_trig_offset = trig_offset;
+                best_prim_id = prim_id;
             }
         }
-
-        return best_trig_offset;
     };
 
-    auto intersect_ray = [&](uint32_t &trig_offset)
+    auto intersect_ray = [&](uint32_t &prim_id)
     {
-        int_trig_t *tmp_trigs = &int_bvh.trigs[trig_offset];
-        transaction_record(trig_offset, TransactionType::INT_BVH_TRIG);
+        trig_t *tmp_trigs = &bvh.trigs[prim_id];
+        transaction_record(prim_id, TransactionType::BVH_TRIG);
 
         float3 p[3]; // Extract vertices from leaf
         for (int i = 0; i < 3; i++)
@@ -949,9 +742,6 @@ void VulkanRayTracing::traceRay(VkAccelerationStructureKHR _topLevelAS,
 
         if (hit && Tmin <= world_thit && world_thit <= Tmax)
         {
-            uint32_t prim_id = (uint32_t)int_bvh.primitive_indices[trig_offset];
-            transaction_record(trig_offset, TransactionType::INT_BVH_PRIMITIVE_INSTANCE);
-
             if (skipAnyHitShader && world_thit < min_thit)
             {
                 min_thit = world_thit;
@@ -976,138 +766,91 @@ void VulkanRayTracing::traceRay(VkAccelerationStructureKHR _topLevelAS,
         }
     };
 
-    uint64_t buffer_addr = 0; // 64 byte buffer
+    std::stack<uint32_t> stack;
+    auto *curr_node = &bvh.nodes[0];
+    transaction_record(0, TransactionType::BVH_NODE);
 
-    while (start_tracing)
+    // Traverse the BVH
+    while (true)
     {
         total_nodes_accessed++;
         total_traverse_steps++;
 
-        int_node_t *curr_node = &cluster_data.local_nodes[curr_local_node_idx];
-        transaction_record(curr_local_node_idx, TransactionType::INT_BVH_NODE);
+        uint32_t left_child_index = curr_node->left_child_data & 0x1FFFFFFF;
+        uint32_t right_child_index = curr_node->right_child_data & 0x1FFFFFFF;
+        uint32_t left_child_primitive_count = (curr_node->left_child_data >> 29) & 0x7;
+        uint32_t right_child_primitive_count = (curr_node->right_child_data >> 29) & 0x7;
 
-        decoded_data_t left_decoded_data = decode_data(curr_node->left_child_data);
-        decoded_data_t right_decoded_data = decode_data(curr_node->right_child_data);
+        auto *left_child = &bvh.nodes[left_child_index];
+        auto *right_child = &bvh.nodes[right_child_index];
 
-        // optional, but can reduce traversal steps
-        if (cluster_data.tmax_version != global_tmax_version)
+        auto distance_left = intersect(curr_node->left_bounds, objectRay);
+        auto distance_right = intersect(curr_node->right_bounds, objectRay);
+
+        if (distance_left.first <= distance_left.second)
         {
-            cluster_data.tmax_version = global_tmax_version;
-            cluster_data.qy_max = ceil_to_int32((objectRay.get_tmax() - cluster_data.y_ref) * cluster_data.inv_sx_inv_sw);
-        }
-
-        auto distance_left = intersect_int_bbox(cluster_data.qy_max, int_w, curr_node->left_bounds,
-                                                cluster_data.qb_l, cluster_data.qb_h);
-        auto distance_right = intersect_int_bbox(cluster_data.qy_max, int_w, curr_node->right_bounds,
-                                                 cluster_data.qb_l, cluster_data.qb_h);
-
-        bool left_hit = false;
-        bool right_hit = false;
-
-        if (distance_left.first)
-        {
-            if (left_decoded_data.child_type == child_type_t::LEAF)
+            if (left_child_primitive_count)
             {
-                uint32_t trig_offset = intersect_leaf(left_decoded_data, cluster_data, objectRay);
+                intersect_leaf(left_child_index, left_child_primitive_count, objectRay);
+                left_child = nullptr;
+            }
+        }
+        else
+            left_child = nullptr;
 
-                if (trig_offset != -1)
+        if (distance_right.first <= distance_right.second)
+        {
+            if (right_child_primitive_count)
+            {
+                intersect_leaf(right_child_index, right_child_primitive_count, objectRay);
+                right_child = nullptr;
+            }
+        }
+        else
+            right_child = nullptr;
+
+        if (left_child)
+        {
+            if (right_child)
+            {
+                if (distance_left.first > distance_right.first)
                 {
-                    best_trig_offset = trig_offset;
-                    global_tmax_version++;
+                    stack.push(left_child_index);
+                    curr_node = right_child;
+                    transaction_record(right_child_index, TransactionType::BVH_NODE);
+                }
+                else
+                {
+                    stack.push(right_child_index);
+                    curr_node = left_child;
+                    transaction_record(left_child_index, TransactionType::BVH_NODE);
                 }
             }
             else
             {
-                left_hit = true;
+                curr_node = left_child;
+                transaction_record(left_child_index, TransactionType::BVH_NODE);
             }
         }
-
-        if (distance_right.first)
+        else if (right_child)
         {
-            if (right_decoded_data.child_type == child_type_t::LEAF)
-            {
-                uint32_t trig_offset = intersect_leaf(right_decoded_data, cluster_data, objectRay);
-
-                if (trig_offset != -1)
-                {
-                    best_trig_offset = trig_offset;
-                    global_tmax_version++;
-                }
-            }
-            else
-            {
-                right_hit = true;
-            }
+            curr_node = right_child;
+            transaction_record(right_child_index, TransactionType::BVH_NODE);
         }
-
-        if (left_hit)
+        else
         {
-            if (right_hit)
-            {
-                // ensure left_decoded_data is closer
-                if (distance_left.second > distance_right.second)
-                    std::swap(left_decoded_data, right_decoded_data);
-
-                // push to stk_2
-                switch (right_decoded_data.child_type)
-                {
-                case child_type_t::INTERNAL:
-                    cluster_data.num_nodes_in_stk_2++;
-                    stk_2.emplace(right_decoded_data.idx, cluster_data.cluster_idx);
-                    break;
-                case child_type_t::SWITCH:
-                    stk_2.emplace(0, right_decoded_data.idx);
-                    break;
-                default:
-                    assert(false);
-                }
-            }
-
-            if (update_node_and_cluster(left_decoded_data))
-                continue;
-        }
-        else if (right_hit)
-        {
-            if (update_node_and_cluster(right_decoded_data))
-                continue;
-        }
-
-        // pop from stk_2 until we found a valid node
-        while (true)
-        {
-            if (stk_2.empty())
-                goto end;
-
-            curr_local_node_idx = stk_2.top().first;
-            int cluster_idx = stk_2.top().second;
-            stk_2.pop();
-
-            if (cluster_data.cluster_idx == cluster_idx)
-            {
-                cluster_data.num_nodes_in_stk_2--;
+            if (stack.empty())
                 break;
-            }
-
-            if ((!stk_1.empty() && stk_1.top().cluster_idx == cluster_idx))
-            {
-                cluster_data = stk_1.top();
-                stk_1.pop();
-                cluster_data.num_nodes_in_stk_2--;
-                break;
-            }
-
-            if (update_cluster_data(cluster_idx))
-                break;
+            curr_node = &bvh.nodes[stack.top()];
+            transaction_record(stack.top(), TransactionType::BVH_NODE);
+            stack.pop();
         }
     }
 
-end:
-    assert(stk_1.empty());
-
-    if (best_trig_offset != -1)
+    if (best_prim_id != -1)
     {
         objectRay.set_tmax(original_tmax);
-        intersect_ray(best_trig_offset);
+        intersect_ray(best_prim_id);
     }
 
     if (min_thit < ray.dir_tmax.w)
@@ -1178,27 +921,6 @@ end:
 
     ctx->func_sim->g_tot_nodes_per_ray += total_nodes_accessed;
     ctx->func_sim->g_tot_traversal_steps += total_traverse_steps;
-
-    // unsigned level = 0;
-    // for (auto it = tree_level_map.begin(); it != tree_level_map.end(); it++)
-    // {
-    //     if (it->second > level)
-    //     {
-    //         level = it->second;
-    //     }
-    // }
-    // if (level > ctx->func_sim->g_max_tree_depth)
-    // {
-    //     ctx->func_sim->g_max_tree_depth = level;
-    // }
-
-    // printf("Traversal: \n");
-    // for (auto t : transactions)
-    // {
-    //     printf("\ttransaction %d, address %p, size %d\n", t.type, t.address, t.size);
-    // }
-
-    // fflush(stdout);
 }
 
 // clang-format off
@@ -1325,67 +1047,49 @@ void VulkanRayTracing::iterateDescriptorSet(struct DESCRIPTOR_SET_STRUCT *set)
 
         if (i == 12)
         {
-            int_bvh_clusters_addr = desc->info.ubo.pmem;
-            size_t num_clusters = desc->info.ubo.buffer_size / INT_BVH_CLUSTER_length;
+            bvh_trigs_addr = desc->info.ubo.pmem;
+            size_t num_trigs = desc->info.ubo.buffer_size / BVH_TRIG_length;
 
-            printf("  (ycpin) Address of int_bvh_clusters: 0x%lx\n", int_bvh_clusters_addr);
-            printf("  (ycpin) Size of int_bvh_clusters: %zu\n", num_clusters);
+            printf("  (ycpin) Address of bvh_trigs: 0x%lx\n", bvh_trigs_addr);
+            printf("  (ycpin) Size of bvh_trigs: %zu\n", num_trigs);
 
-            int_bvh.num_clusters = num_clusters;
-            int_bvh.clusters = std::make_unique<int_cluster_t[]>(num_clusters);
+            bvh.trigs = std::make_unique<trig_t[]>(num_trigs);
 
-            for (size_t i = 0; i < num_clusters; ++i)
+            for (size_t i = 0; i < num_trigs; ++i)
             {
-                mem->read((mem_addr_t)(int_bvh_clusters_addr + i * INT_BVH_CLUSTER_length),
-                          INT_BVH_CLUSTER_length, (void *)&int_bvh.clusters[i]);
+                mem->read((mem_addr_t)(bvh_trigs_addr + i * BVH_TRIG_length), BVH_TRIG_length, (void *)&bvh.trigs[i]);
             }
         }
         else if (i == 13)
         {
-            int_bvh_trigs_addr = desc->info.ubo.pmem;
-            size_t num_trigs = desc->info.ubo.buffer_size / INT_BVH_TRIG_length;
+            bvh_nodes_addr = desc->info.ubo.pmem;
+            size_t node_count = desc->info.ubo.buffer_size / BVH_NODE_length;
 
-            printf("  (ycpin) Address of int_bvh_trigs: 0x%lx\n", int_bvh_trigs_addr);
-            printf("  (ycpin) Size of int_bvh_trigs: %zu\n", num_trigs);
+            printf("  (ycpin) Address of bvh_nodes: 0x%lx\n", bvh_nodes_addr);
+            printf("  (ycpin) Size of bvh_nodes: %zu\n", node_count);
 
-            int_bvh.trigs = std::make_unique<int_trig_t[]>(num_trigs);
+            bvh.nodes = std::make_unique<node_t[]>(node_count);
+            bvh.node_count = node_count;
 
-            for (size_t i = 0; i < num_trigs; ++i)
+            for (size_t i = 0; i < node_count; ++i)
             {
-                mem->read((mem_addr_t)(int_bvh_trigs_addr + i * INT_BVH_TRIG_length),
-                          INT_BVH_TRIG_length, (void *)&int_bvh.trigs[i]);
+                mem->read((mem_addr_t)(bvh_nodes_addr + i * BVH_NODE_length), BVH_NODE_length, (void *)&bvh.nodes[i]);
             }
         }
         else if (i == 14)
         {
-            int_bvh_nodes_addr = desc->info.ubo.pmem;
-            size_t node_count = desc->info.ubo.buffer_size / INT_BVH_NODE_length;
+            bvh_primitive_indices_addr = desc->info.ubo.pmem;
+            size_t num_primitive_indices = desc->info.ubo.buffer_size / BVH_PRIMITIVE_INSTANCE_length;
 
-            printf("  (ycpin) Address of int_bvh_nodes: 0x%lx\n", int_bvh_nodes_addr);
-            printf("  (ycpin) Size of int_bvh_nodes: %zu\n", node_count);
+            printf("  (ycpin) Address of bvh_primitive_indices: 0x%lx\n", bvh_primitive_indices_addr);
+            printf("  (ycpin) Size of bvh_primitive_indices: %zu\n", num_primitive_indices);
 
-            int_bvh.nodes = std::make_unique<int_node_t[]>(node_count);
-
-            for (size_t i = 0; i < node_count; ++i)
-            {
-                mem->read((mem_addr_t)(int_bvh_nodes_addr + i * INT_BVH_NODE_length),
-                          INT_BVH_NODE_length, (void *)&int_bvh.nodes[i]);
-            }
-        }
-        else if (i == 15)
-        {
-            int_bvh_primitive_indices_addr = desc->info.ubo.pmem;
-            size_t num_primitive_indices = desc->info.ubo.buffer_size / INT_BVH_PRIMITIVE_INSTANCE_length;
-
-            printf("  (ycpin) Address of int_bvh_primitive_indices: 0x%lx\n", int_bvh_primitive_indices_addr);
-            printf("  (ycpin) Size of int_bvh_primitive_indices: %zu\n", num_primitive_indices);
-
-            int_bvh.primitive_indices = std::make_unique<size_t[]>(num_primitive_indices);
+            bvh.primitive_indices = std::make_unique<size_t[]>(num_primitive_indices);
 
             for (size_t i = 0; i < num_primitive_indices; ++i)
             {
-                mem->read((mem_addr_t)(int_bvh_primitive_indices_addr + i * INT_BVH_PRIMITIVE_INSTANCE_length),
-                          INT_BVH_PRIMITIVE_INSTANCE_length, (void *)&int_bvh.primitive_indices[i]);
+                mem->read((mem_addr_t)(bvh_primitive_indices_addr + i * BVH_PRIMITIVE_INSTANCE_length),
+                          BVH_PRIMITIVE_INSTANCE_length, (void *)&bvh.primitive_indices[i]);
             }
         }
 
@@ -1800,13 +1504,11 @@ void VulkanRayTracing::vkCmdTraceRaysKHR(
 
     printf("gpgpusim: tlas address %p\n", tlas_addr);
 
-    printf("(ycpin) gpgpusim: clusters address %p\n", int_bvh_clusters_addr);
-
-    printf("(ycpin) gpgpusim: trigs address %p\n", int_bvh_trigs_addr);
+    printf("(ycpin) gpgpusim: trigs address %p\n", bvh_trigs_addr);
     
-    printf("(ycpin) gpgpusim: nodes address %p\n", int_bvh_nodes_addr);
+    printf("(ycpin) gpgpusim: nodes address %p\n", bvh_nodes_addr);
 
-    printf("(ycpin) gpgpusim: primitive indices address %p\n", int_bvh_primitive_indices_addr);
+    printf("(ycpin) gpgpusim: primitive indices address %p\n", bvh_primitive_indices_addr);
             
     struct CUstream_st *stream = 0;
     stream_operation op(grid, ctx->func_sim->g_ptx_sim_mode, stream);
@@ -2402,7 +2104,7 @@ void VulkanRayTracing::image_store(struct DESCRIPTOR_STRUCT* desc, uint32_t gl_L
             strftime(time_buf, sizeof(time_buf), "%d-%m-%Y-%H-%M-%S-", time_info);
 
             std::string time_offset(time_buf);
-            std::string new_img_file_name = "quantize_" + time_offset + img_name;
+            std::string new_img_file_name = time_offset + img_name;
 
             outputImages[img_name] = new_img_file_name + ".ppm";
             printf("gpgpusim: saving image %s to file %s\n", img_name.c_str(), outputImages[img_name].c_str());

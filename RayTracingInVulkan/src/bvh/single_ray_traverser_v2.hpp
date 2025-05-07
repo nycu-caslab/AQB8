@@ -1,5 +1,5 @@
-#ifndef BVH_SINGLE_RAY_TRAVERSAL_HPP
-#define BVH_SINGLE_RAY_TRAVERSAL_HPP
+#ifndef BVH_SINGLE_RAY_TRAVERSAL_V2_HPP
+#define BVH_SINGLE_RAY_TRAVERSAL_V2_HPP
 
 #include <cassert>
 
@@ -13,7 +13,7 @@ namespace bvh
 
     /// Single ray traversal algorithm, using the provided ray-node intersector.
     template <typename Bvh, size_t StackSize = 64, typename NodeIntersector = FastNodeIntersector<Bvh>>
-    class SingleRayTraverser
+    class SingleRayTraverser_v2
     {
     public:
         static constexpr size_t stack_size = StackSize;
@@ -47,15 +47,16 @@ namespace bvh
         bvh_always_inline
             std::optional<typename PrimitiveIntersector::Result> &
             intersect_leaf(
-                const typename Bvh::Node &node,
+                const uint32_t &primitive_index,
+                const uint32_t &primitive_count,
                 Ray<Scalar> &ray,
                 std::optional<typename PrimitiveIntersector::Result> &best_hit,
                 PrimitiveIntersector &primitive_intersector,
                 Statistics &statistics) const
         {
-            assert(node.is_leaf());
-            size_t begin = node.first_child_or_primitive;
-            size_t end = begin + node.primitive_count;
+            assert(primitive_count);
+            size_t begin = primitive_index;
+            size_t end = begin + primitive_count;
             for (size_t i = begin; i < end; ++i)
             {
                 if (auto hit = primitive_intersector.intersect(i, ray, statistics))
@@ -76,30 +77,34 @@ namespace bvh
         {
             auto best_hit = std::optional<typename PrimitiveIntersector::Result>(std::nullopt);
 
-            // If the root is a leaf, intersect it and return
-            if (bvh_unlikely(bvh.nodes[0].is_leaf()))
-                return intersect_leaf(bvh.nodes[0], ray, best_hit, primitive_intersector, statistics);
-
             NodeIntersector node_intersector(ray);
 
             // This traversal loop is eager, because it immediately processes leaves instead of pushing them on the stack.
             // This is generally beneficial for performance because intersections will likely be found which will
             // allow to cull more subtrees with the ray-box test of the traversal loop.
             Stack stack;
-            auto *left_child = &bvh.nodes[bvh.nodes[0].first_child_or_primitive];
+            auto *curr_node = &bvh.nodes_v2[0];
+
             while (true)
             {
                 statistics.traversal_steps++;
 
-                auto *right_child = left_child + 1;
-                auto distance_left = node_intersector.intersect(left_child->bounds, ray);
-                auto distance_right = node_intersector.intersect(right_child->bounds, ray);
+                uint32_t left_child_index = curr_node->left_child_data & 0x1FFFFFFF;
+                uint32_t right_child_index = curr_node->right_child_data & 0x1FFFFFFF;
+                uint32_t left_child_primitive_count = (curr_node->left_child_data >> 29) & 0x7;
+                uint32_t right_child_primitive_count = (curr_node->right_child_data >> 29) & 0x7;
+
+                auto *left_child = &bvh.nodes_v2[left_child_index];
+                auto *right_child = &bvh.nodes_v2[right_child_index];
+
+                auto distance_left = node_intersector.intersect(curr_node->left_bounds, ray);
+                auto distance_right = node_intersector.intersect(curr_node->right_bounds, ray);
 
                 if (distance_left.first <= distance_left.second)
                 {
-                    if (bvh_unlikely(left_child->is_leaf()))
+                    if (bvh_unlikely(left_child_primitive_count))
                     {
-                        if (intersect_leaf(*left_child, ray, best_hit, primitive_intersector, statistics) &&
+                        if (intersect_leaf(left_child_index, left_child_primitive_count, ray, best_hit, primitive_intersector, statistics) &&
                             primitive_intersector.any_hit)
                             break;
                         left_child = nullptr;
@@ -110,9 +115,9 @@ namespace bvh
 
                 if (distance_right.first <= distance_right.second)
                 {
-                    if (bvh_unlikely(right_child->is_leaf()))
+                    if (bvh_unlikely(right_child_primitive_count))
                     {
-                        if (intersect_leaf(*right_child, ray, best_hit, primitive_intersector, statistics) &&
+                        if (intersect_leaf(right_child_index, right_child_primitive_count, ray, best_hit, primitive_intersector, statistics) &&
                             primitive_intersector.any_hit)
                             break;
                         right_child = nullptr;
@@ -127,20 +132,30 @@ namespace bvh
                     {
                         statistics.both_intersected++;
                         if (distance_left.first > distance_right.first)
-                            std::swap(left_child, right_child);
-                        stack.push(right_child->first_child_or_primitive);
+                        {
+                            stack.push(left_child_index);
+                            curr_node = right_child;
+                        }
+                        else
+                        {
+                            stack.push(right_child_index);
+                            curr_node = left_child;
+                        }
                     }
-                    left_child = &bvh.nodes[left_child->first_child_or_primitive];
+                    else
+                    {
+                        curr_node = left_child;
+                    }
                 }
                 else if (right_child)
                 {
-                    left_child = &bvh.nodes[right_child->first_child_or_primitive];
+                    curr_node = right_child;
                 }
                 else
                 {
                     if (stack.empty())
                         break;
-                    left_child = &bvh.nodes[stack.pop()];
+                    curr_node = &bvh.nodes_v2[stack.pop()];
                 }
             }
 
@@ -162,7 +177,7 @@ namespace bvh
             size_t finalize = 0;
         };
 
-        SingleRayTraverser(const Bvh &bvh)
+        SingleRayTraverser_v2(const Bvh &bvh)
             : bvh(bvh)
         {
         }

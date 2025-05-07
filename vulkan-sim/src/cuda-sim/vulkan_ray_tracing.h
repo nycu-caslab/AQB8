@@ -242,10 +242,26 @@ struct lvp_descriptor;
         fflush(stdout);      \
     }
 
-#include "bvh/int_bvh.hpp"
-#include "bvh/int_traverse.hpp"
+#include "bvh/bvh.hpp"
+#include <stack>
+#include <vector>
+#include <utility>
 
-using namespace bvh_quantize;
+typedef bvh::Bvh<float> bvh_t;
+typedef bvh_t::Trig trig_t;
+typedef bvh_t::Node node_t;
+
+template <typename T>
+const T &robust_min(const T &x, const T &y)
+{
+    return x < y ? x : y;
+}
+
+template <typename T>
+const T &robust_max(const T &x, const T &y)
+{
+    return x > y ? x : y;
+}
 
 class VulkanRayTracing
 {
@@ -269,13 +285,10 @@ private:
 
     static void *tlas_addr;
 
-    static void *int_bvh_addr;
-    static void *int_bvh_clusters_addr;
-    static void *int_bvh_trigs_addr;
-    static void *int_bvh_nodes_addr;
-    static void *int_bvh_primitive_indices_addr;
-
-    static int_bvh_t int_bvh;
+    static void *bvh_trigs_addr;
+    static void *bvh_nodes_addr;
+    static void *bvh_primitive_indices_addr;
+    static bvh_t bvh;
 
     static bool dumped;
     static bool _init_;
@@ -295,22 +308,7 @@ private:
     static void init(uint32_t launch_width, uint32_t launch_height);
 
 public:
-    static int32_t floor_to_int32(float x);
-    static int32_t ceil_to_int32(float x);
-    static int_w_t get_int_w(const std::array<float, 3> &w);
-    static decoded_data_t decode_data(uint16_t data);
-
-    static std::pair<bool, float> intersect_bbox(const std::array<bool, 3> &octant,
-                                                 const std::array<float, 3> &w,
-                                                 const float *x,
-                                                 const std::array<float, 3> &b,
-                                                 float tmax);
-    static std::pair<bool, int32_t> intersect_int_bbox(int32_t qy_max,
-                                                       const int_w_t &int_w,
-                                                       const uint8_t *qx,
-                                                       const int32_t *qb_l,
-                                                       const int32_t *qb_h);
-    static std::pair<bool, float> intersect_trig(int_trig_t *trigs, const Ray &ray);
+    static std::pair<bool, float> intersect_trig(trig_t *trigs, const Ray &ray);
 
     static void traceRay( // called by raygen shader
         VkAccelerationStructureKHR _topLevelAS, uint rayFlags, uint cullMask,
