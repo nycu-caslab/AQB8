@@ -4,6 +4,7 @@
 #include <climits>
 #include <memory>
 #include <cassert>
+#include <stack>
 
 #include "bvh/bounding_box.hpp"
 #include "bvh/utilities.hpp"
@@ -22,15 +23,52 @@ namespace bvh
         using IndexType = typename SizedIntegerType<sizeof(Scalar) * CHAR_BIT>::Unsigned;
         using ScalarType = Scalar;
 
+        struct Compress_trig
+        {
+            float v[3][3];
+        };
+
+        struct Compress_node
+        {
+            uint8_t bounds_quant[6];
+            int8_t exp[3];
+            size_t primitive_count;
+            size_t first_child_or_primitive;
+
+            bool is_leaf() const { return primitive_count != 0; }
+        };
+
+        struct Compress_node_v2
+        {
+            uint8_t bounds_quant[6][6];
+            int8_t exp[3];
+            uint32_t data[6];
+        };
+
+        struct Compress_root
+        {
+            float bounds[6];
+            uint8_t bounds_quant[6];
+            int8_t exp[3];
+            size_t primitive_count;
+            size_t first_child_or_primitive;
+
+            bool is_leaf() const { return primitive_count != 0; }
+        };
+
         // The size of this structure should be 32 bytes in
         // single precision and 64 bytes in double precision.
         struct Node
         {
             Scalar bounds[6];
+            uint8_t bounds_quant[6];
+            int8_t exp[3];
             IndexType primitive_count;
             IndexType first_child_or_primitive;
 
-            bool is_leaf() const { return primitive_count != 0; }
+            bool is_leaf_val;
+            bool is_leaf() const { return is_leaf_val; }
+            // bool is_leaf() const { return primitive_count != 0; }
 
             /// Accessor to simplify the manipulation of the bounding box of a node.
             /// This type is convertible to a `BoundingBox`.
@@ -105,57 +143,73 @@ namespace bvh
         }
 
         std::unique_ptr<Node[]> nodes;
+        std::unique_ptr<Compress_node_v2[]> nodes_v2;
         std::unique_ptr<size_t[]> primitive_indices;
-        size_t node_count = 0;
 
-        size_t calculate_data_size() const
+        size_t node_count = 0;
+        size_t node_count_v2 = 0;
+
+        inline uint32_t pack_child_info(bool is_leaf_val, size_t primitive_count, size_t first_child_or_primitive)
         {
-            size_t node_size = sizeof(Node);
-            size_t primitive_index_size = sizeof(size_t);
-            size_t total_node_data_size = node_size * node_count;
-            size_t total_primitive_indices_size = primitive_index_size * node_count;
-            return total_node_data_size + total_primitive_indices_size;
+            return (static_cast<uint32_t>(is_leaf_val) << 31) |
+                   ((static_cast<uint32_t>(primitive_count) & 0x7) << 28) |
+                   (static_cast<uint32_t>(first_child_or_primitive) & 0x0FFFFFFF);
+        }
+
+        inline void convert_nodes(const std::unique_ptr<Node[]> &old_nodes, size_t node_count)
+        {
+            std::vector<Compress_node_v2> temp_nodes;
+
+            std::vector<size_t> old_to_new_index(node_count, -1);
+            size_t new_index = 0;
+
+            // Step 1: Assign new indices to valid nodes
+            for (size_t i = 0; i < node_count; i++)
+            {
+                if (!old_nodes[i].is_leaf())
+                {
+                    old_to_new_index[i] = new_index++;
+                }
+            }
+
+            // Step 2: Fill new_nodes while updating child indices
+            for (size_t i = 0; i < node_count; i++)
+            {
+                Node &old_n = old_nodes[i];
+
+                if (old_n.is_leaf())
+                    continue;
+
+                Compress_node_v2 new_n;
+                std::memcpy(new_n.exp, old_n.exp, sizeof(int8_t) * 3);
+
+                for (int j = 0; j < old_n.primitive_count; j++)
+                {
+                    size_t child_index = old_n.first_child_or_primitive + j;
+                    Node &child = old_nodes[child_index];
+
+                    std::memcpy(new_n.bounds_quant[j], child.bounds_quant, sizeof(uint8_t) * 6);
+
+                    if (child.is_leaf())
+                    {
+                        new_n.data[j] = pack_child_info(child.is_leaf_val, child.primitive_count, child.first_child_or_primitive);
+                    }
+                    else
+                    {
+                        new_n.data[j] = pack_child_info(child.is_leaf_val, child.primitive_count, old_to_new_index[child_index]);
+                    }
+                }
+
+                temp_nodes.emplace_back(new_n);
+            }
+
+            std::unique_ptr<Compress_node_v2[]> new_nodes = std::make_unique<Compress_node_v2[]>(temp_nodes.size());
+            std::copy(temp_nodes.begin(), temp_nodes.end(), new_nodes.get());
+
+            this->nodes_v2 = std::move(new_nodes);
+            this->node_count_v2 = temp_nodes.size();
         }
     };
-
-    template <typename Scalar>
-    void traverse(const Bvh<Scalar> &bvh, size_t node_index = 0, size_t depth = 0)
-    {
-        // Ensure there is at least one node to traverse
-        if (bvh.node_count == 0)
-            return;
-
-        const auto *nodes = bvh.nodes.get();
-        const auto *primitive_indices = bvh.primitive_indices.get();
-        const auto &node = nodes[node_index];
-
-        // Print the current node's information
-        printf("%*sNode %ld:\n", static_cast<int>(depth * 2), "", node_index);
-        auto bbox = node.bounding_box_proxy().to_bounding_box();
-        printf("%*s  BoundingBox: [%f, %f, %f] to [%f, %f, %f]\n",
-               static_cast<int>(depth * 2), "",
-               bbox.min[0], bbox.min[1], bbox.min[2],
-               bbox.max[0], bbox.max[1], bbox.max[2]);
-
-        if (node.is_leaf())
-        {
-            // Leaf node: print the primitive indices
-            printf("%*s  Primitives (index): ", static_cast<int>(depth * 2), "");
-            for (size_t i = 0; i < node.primitive_count; ++i)
-            {
-                printf("%ld ", primitive_indices[node.first_child_or_primitive + i]);
-            }
-            printf("\n");
-        }
-        else
-        {
-            // Internal node: traverse children
-            size_t left_child_index = node.first_child_or_primitive;
-            size_t right_child_index = left_child_index + 1;
-            traverse<Scalar>(bvh, left_child_index, depth + 1);
-            traverse<Scalar>(bvh, right_child_index, depth + 1);
-        }
-    }
 
 } // namespace bvh
 

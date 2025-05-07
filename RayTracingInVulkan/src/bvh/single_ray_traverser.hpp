@@ -53,7 +53,7 @@ namespace bvh
                 PrimitiveIntersector &primitive_intersector,
                 Statistics &statistics) const
         {
-            assert(node.is_leaf());
+            assert(node.primitive_count);
             size_t begin = node.first_child_or_primitive;
             size_t end = begin + node.primitive_count;
             for (size_t i = begin; i < end; ++i)
@@ -77,7 +77,7 @@ namespace bvh
             auto best_hit = std::optional<typename PrimitiveIntersector::Result>(std::nullopt);
 
             // If the root is a leaf, intersect it and return
-            if (bvh_unlikely(bvh.nodes[0].is_leaf()))
+            if (bvh_unlikely(bvh.nodes[0].primitive_count))
                 return intersect_leaf(bvh.nodes[0], ray, best_hit, primitive_intersector, statistics);
 
             NodeIntersector node_intersector(ray);
@@ -92,12 +92,12 @@ namespace bvh
                 statistics.traversal_steps++;
 
                 auto *right_child = left_child + 1;
-                auto distance_left = node_intersector.intersect(*left_child, ray);
-                auto distance_right = node_intersector.intersect(*right_child, ray);
+                auto distance_left = node_intersector.intersect(left_child->bounds, ray);
+                auto distance_right = node_intersector.intersect(right_child->bounds, ray);
 
                 if (distance_left.first <= distance_left.second)
                 {
-                    if (bvh_unlikely(left_child->is_leaf()))
+                    if (bvh_unlikely(left_child->primitive_count))
                     {
                         if (intersect_leaf(*left_child, ray, best_hit, primitive_intersector, statistics) &&
                             primitive_intersector.any_hit)
@@ -110,7 +110,7 @@ namespace bvh
 
                 if (distance_right.first <= distance_right.second)
                 {
-                    if (bvh_unlikely(right_child->is_leaf()))
+                    if (bvh_unlikely(right_child->primitive_count))
                     {
                         if (intersect_leaf(*right_child, ray, best_hit, primitive_intersector, statistics) &&
                             primitive_intersector.any_hit)
