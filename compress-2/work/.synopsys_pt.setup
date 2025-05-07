@@ -1,0 +1,2 @@
+set search_path "$search_path /usr/cad/cell_lib/TN40G/db ."
+set link_path "* sc9_cln40g_base_rvt_tt_typical_max_0p90v_25c.db"

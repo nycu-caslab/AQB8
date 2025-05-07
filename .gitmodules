@@ -1,0 +1,14 @@
+[submodule "baseline-2/data/bvh"]
+	path = baseline-2/data/bvh
+	url = https://github.com/madmann91/bvh.git
+	branch = v1
+[submodule "baseline-2/data/happly"]
+	path = baseline-2/data/happly
+	url = https://github.com/nmwsharp/happly.git
+[submodule "compress-2/data/happly"]
+	path = compress-2/data/happly
+	url = https://github.com/nmwsharp/happly.git
+[submodule "compress-2/data/bvh"]
+	path = compress-2/data/bvh
+	url = https://github.com/madmann91/bvh.git
+	branch = v1

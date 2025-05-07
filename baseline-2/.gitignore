@@ -1,0 +1,7 @@
+data/*.bin
+work/*
+!work/.synopsys_dc.setup
+!work/.synopsys_pt.setup
+!work/Makefile
+!work/pwr.tcl
+!work/syn.tcl
