@@ -881,6 +881,7 @@ void VulkanRayTracing::traceRay(VkAccelerationStructureKHR _topLevelAS,
         cluster_data.tmax_version = global_tmax_version;
         cluster_data.qy_max = ceil_to_int32((objectRay.get_tmax() - cluster_data.y_ref) * cluster_data.inv_sx_inv_sw);
         cluster_data.num_nodes_in_stk_2 = 0;
+        cluster_data.num_nodes = cluster.num_nodes;
         return true;
     };
 
@@ -976,8 +977,6 @@ void VulkanRayTracing::traceRay(VkAccelerationStructureKHR _topLevelAS,
         }
     };
 
-    uint64_t buffer_addr = 0; // 64 byte buffer
-
     while (start_tracing)
     {
         total_nodes_accessed++;
@@ -986,8 +985,7 @@ void VulkanRayTracing::traceRay(VkAccelerationStructureKHR _topLevelAS,
         int_node_t *curr_node = &cluster_data.local_nodes[curr_local_node_idx];
         transaction_record(curr_local_node_idx, TransactionType::INT_BVH_NODE);
 
-        decoded_data_t left_decoded_data = decode_data(curr_node->left_child_data);
-        decoded_data_t right_decoded_data = decode_data(curr_node->right_child_data);
+        decoded_data_t decoded_data[6];
 
         // optional, but can reduce traversal steps
         if (cluster_data.tmax_version != global_tmax_version)
@@ -996,79 +994,60 @@ void VulkanRayTracing::traceRay(VkAccelerationStructureKHR _topLevelAS,
             cluster_data.qy_max = ceil_to_int32((objectRay.get_tmax() - cluster_data.y_ref) * cluster_data.inv_sx_inv_sw);
         }
 
-        auto distance_left = intersect_int_bbox(cluster_data.qy_max, int_w, curr_node->left_bounds,
-                                                cluster_data.qb_l, cluster_data.qb_h);
-        auto distance_right = intersect_int_bbox(cluster_data.qy_max, int_w, curr_node->right_bounds,
-                                                 cluster_data.qb_l, cluster_data.qb_h);
+        std::vector<std::pair<float, int>> sorted_nodes;
 
-        bool left_hit = false;
-        bool right_hit = false;
-
-        if (distance_left.first)
+        for (int i = 0; i < 6; i++)
         {
-            if (left_decoded_data.child_type == child_type_t::LEAF)
-            {
-                uint32_t trig_offset = intersect_leaf(left_decoded_data, cluster_data, objectRay);
+            if (curr_local_node_idx + i >= cluster_data.num_nodes)
+                break;
 
-                if (trig_offset != -1)
-                {
-                    best_trig_offset = trig_offset;
-                    global_tmax_version++;
-                }
-            }
-            else
+            auto distance = intersect_int_bbox(cluster_data.qy_max, int_w, curr_node->bounds[i],
+                                               cluster_data.qb_l, cluster_data.qb_h);
+            decoded_data[i] = decode_data(curr_node->data[i]);
+
+            if (distance.first)
             {
-                left_hit = true;
+                if (decoded_data[i].child_type == child_type_t::LEAF)
+                {
+                    uint32_t trig_offset = intersect_leaf(decoded_data[i], cluster_data, objectRay);
+
+                    if (trig_offset != -1)
+                    {
+                        best_trig_offset = trig_offset;
+                        global_tmax_version++;
+                    }
+                }
+                else
+                {
+                    sorted_nodes.emplace_back(distance.second, i);
+                }
             }
         }
 
-        if (distance_right.first)
-        {
-            if (right_decoded_data.child_type == child_type_t::LEAF)
-            {
-                uint32_t trig_offset = intersect_leaf(right_decoded_data, cluster_data, objectRay);
+        std::sort(sorted_nodes.begin(), sorted_nodes.end());
 
-                if (trig_offset != -1)
-                {
-                    best_trig_offset = trig_offset;
-                    global_tmax_version++;
-                }
-            }
-            else
+        for (size_t i = 1; i < sorted_nodes.size(); i++)
+        {
+            int idx = sorted_nodes[i].second;
+
+            switch (decoded_data[idx].child_type)
             {
-                right_hit = true;
+            case child_type_t::INTERNAL:
+                cluster_data.num_nodes_in_stk_2++;
+                stk_2.emplace(decoded_data[idx].idx, cluster_data.cluster_idx);
+                break;
+            case child_type_t::SWITCH:
+                stk_2.emplace(0, decoded_data[idx].idx);
+                break;
+            default:
+                assert(false);
             }
         }
 
-        if (left_hit)
+        if (sorted_nodes.size() > 0)
         {
-            if (right_hit)
-            {
-                // ensure left_decoded_data is closer
-                if (distance_left.second > distance_right.second)
-                    std::swap(left_decoded_data, right_decoded_data);
-
-                // push to stk_2
-                switch (right_decoded_data.child_type)
-                {
-                case child_type_t::INTERNAL:
-                    cluster_data.num_nodes_in_stk_2++;
-                    stk_2.emplace(right_decoded_data.idx, cluster_data.cluster_idx);
-                    break;
-                case child_type_t::SWITCH:
-                    stk_2.emplace(0, right_decoded_data.idx);
-                    break;
-                default:
-                    assert(false);
-                }
-            }
-
-            if (update_node_and_cluster(left_decoded_data))
-                continue;
-        }
-        else if (right_hit)
-        {
-            if (update_node_and_cluster(right_decoded_data))
+            int idx = sorted_nodes[0].second;
+            if (update_node_and_cluster(decoded_data[idx]))
                 continue;
         }
 
@@ -1081,13 +1060,11 @@ void VulkanRayTracing::traceRay(VkAccelerationStructureKHR _topLevelAS,
             curr_local_node_idx = stk_2.top().first;
             int cluster_idx = stk_2.top().second;
             stk_2.pop();
-
             if (cluster_data.cluster_idx == cluster_idx)
             {
                 cluster_data.num_nodes_in_stk_2--;
                 break;
             }
-
             if ((!stk_1.empty() && stk_1.top().cluster_idx == cluster_idx))
             {
                 cluster_data = stk_1.top();
@@ -1095,7 +1072,6 @@ void VulkanRayTracing::traceRay(VkAccelerationStructureKHR _topLevelAS,
                 cluster_data.num_nodes_in_stk_2--;
                 break;
             }
-
             if (update_cluster_data(cluster_idx))
                 break;
         }

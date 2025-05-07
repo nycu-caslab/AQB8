@@ -127,10 +127,13 @@ namespace bvh_quantize
         std::vector<int> t_buf_idx_map(bvh.node_count);
         std::stack<std::pair<size_t, int>> stk_1;
         node_t &root_node = bvh.nodes[0];
-        size_t root_left_node_idx = root_node.first_child_or_primitive;
-        size_t root_right_node_idx = root_left_node_idx + 1;
-        stk_1.emplace(root_right_node_idx, 1);
-        stk_1.emplace(root_left_node_idx, 1);
+
+        for (size_t id = 0; id < root_node.primitive_count; ++id)
+        {
+            auto child_idx = root_node.first_child_or_primitive + id;
+            stk_1.emplace(child_idx, 1);
+        }
+
         while (!stk_1.empty())
         {
             auto [curr_node_idx, depth] = stk_1.top();
@@ -142,40 +145,50 @@ namespace bvh_quantize
 
             if (!curr_node.is_leaf())
             {
-                size_t left_node_idx = curr_node.first_child_or_primitive;
-                size_t right_node_idx = left_node_idx + 1;
-                stk_1.emplace(right_node_idx, depth + 1);
-                stk_1.emplace(left_node_idx, depth + 1);
+                for (size_t id = 0; id < curr_node.primitive_count; ++id)
+                {
+                    auto child_idx = curr_node.first_child_or_primitive + id;
+                    stk_1.emplace(child_idx, depth + 1);
+                }
             }
         }
 
         // stk_2: fill parent, t_buf, t_policy
         std::vector<size_t> parent(bvh.node_count);
-        parent[root_left_node_idx] = 0;
-        parent[root_right_node_idx] = 0;
+
+        for (size_t id = 0; id < root_node.primitive_count; ++id)
+        {
+            auto child_idx = root_node.first_child_or_primitive + id;
+            parent[child_idx] = 0;
+        }
+
         std::vector<float> t_buf(t_buf_size);
         std::vector<policy_t> t_policy(t_buf_size);
         std::stack<std::pair<size_t, bool>> stk_2;
-        stk_2.emplace(root_right_node_idx, true);
-        stk_2.emplace(root_left_node_idx, true);
+
+        for (size_t id = 0; id < root_node.primitive_count; ++id)
+        {
+            auto child_idx = root_node.first_child_or_primitive + id;
+            stk_2.emplace(child_idx, true);
+        }
+
         while (!stk_2.empty())
         {
             auto [curr_node_idx, first] = stk_2.top();
             node_t &curr_node = bvh.nodes[curr_node_idx];
             stk_2.pop();
 
-            size_t left_node_idx = curr_node.first_child_or_primitive;
-            size_t right_node_idx = left_node_idx + 1;
-
             if (first)
             {
                 stk_2.emplace(curr_node_idx, false);
                 if (!curr_node.is_leaf())
                 {
-                    stk_2.emplace(right_node_idx, true);
-                    stk_2.emplace(left_node_idx, true);
-                    parent[left_node_idx] = curr_node_idx;
-                    parent[right_node_idx] = curr_node_idx;
+                    for (size_t id = 0; id < curr_node.primitive_count; ++id)
+                    {
+                        auto child_idx = curr_node.first_child_or_primitive + id;
+                        stk_2.emplace(child_idx, true);
+                        parent[child_idx] = curr_node_idx;
+                    }
                 }
             }
             else
@@ -189,20 +202,26 @@ namespace bvh_quantize
 
                     float &curr_t_buf = t_buf[t_buf_idx_map[curr_node_idx] + i];
                     policy_t &curr_t_policy = t_policy[t_buf_idx_map[curr_node_idx] + i];
+
                     if (curr_node.is_leaf())
                     {
-                        curr_t_buf = t_ist * (float)curr_node.primitive_count * half_area;
+                        curr_t_buf = t_ist * 1 * half_area;
                     }
                     else
                     {
-                        float left_stay_t = t_buf[t_buf_idx_map[left_node_idx] + 1 + i];
-                        float right_stay_t = t_buf[t_buf_idx_map[right_node_idx] + 1 + i];
+                        float curr_stay_t = t_trv_int * 2 * half_area;
+                        float curr_switch_t = (t_trv_int * 2 + t_switch) * half_area;
 
-                        float left_switch_t = t_buf[t_buf_idx_map[left_node_idx]];
-                        float right_switch_t = t_buf[t_buf_idx_map[right_node_idx]];
+                        for (size_t id = 0; id < curr_node.primitive_count; ++id)
+                        {
+                            auto child_idx = curr_node.first_child_or_primitive + id;
 
-                        float curr_stay_t = t_trv_int * 2 * half_area + left_stay_t + right_stay_t;
-                        float curr_switch_t = (t_trv_int * 2 + t_switch) * half_area + left_switch_t + right_switch_t;
+                            float stay_t = t_buf[t_buf_idx_map[child_idx] + 1 + i];
+                            float switch_t = t_buf[t_buf_idx_map[child_idx]];
+
+                            curr_stay_t += stay_t;
+                            curr_switch_t += switch_t;
+                        }
 
                         assert(std::isfinite(curr_stay_t));
                         assert(std::isfinite(curr_switch_t));
@@ -231,8 +250,13 @@ namespace bvh_quantize
         std::vector<policy_t> policy(bvh.node_count);
         std::stack<std::pair<size_t, int>> stk_3;
         policy[0] = policy_t::SWITCH;
-        stk_3.emplace(root_right_node_idx, 0);
-        stk_3.emplace(root_left_node_idx, 0);
+
+        for (size_t id = 0; id < root_node.primitive_count; ++id)
+        {
+            auto child_idx = root_node.first_child_or_primitive + id;
+            stk_3.emplace(child_idx, 0);
+        }
+
         while (!stk_3.empty())
         {
             auto [curr_node_idx, curr_offset] = stk_3.top();
@@ -242,21 +266,21 @@ namespace bvh_quantize
             if (curr_node.is_leaf())
                 continue;
 
-            size_t left_node_idx = curr_node.first_child_or_primitive;
-            size_t right_node_idx = left_node_idx + 1;
-
-            switch (t_policy[t_buf_idx_map[curr_node_idx] + curr_offset])
+            for (size_t id = 0; id < curr_node.primitive_count; ++id)
             {
-            case policy_t::STAY:
-                policy[curr_node_idx] = policy_t::STAY;
-                stk_3.emplace(right_node_idx, 1 + curr_offset);
-                stk_3.emplace(left_node_idx, 1 + curr_offset);
-                break;
-            case policy_t::SWITCH:
-                policy[curr_node_idx] = policy_t::SWITCH;
-                stk_3.emplace(right_node_idx, 0);
-                stk_3.emplace(left_node_idx, 0);
-                break;
+                auto child_idx = curr_node.first_child_or_primitive + id;
+
+                switch (t_policy[t_buf_idx_map[curr_node_idx] + curr_offset])
+                {
+                case policy_t::STAY:
+                    policy[curr_node_idx] = policy_t::STAY;
+                    stk_3.emplace(child_idx, 1 + curr_offset);
+                    break;
+                case policy_t::SWITCH:
+                    policy[curr_node_idx] = policy_t::SWITCH;
+                    stk_3.emplace(child_idx, 0);
+                    break;
+                }
             }
         }
 
@@ -307,15 +331,15 @@ namespace bvh_quantize
             // 更新局部索引映射 local_node_idx_map 和集群節點索引 cluster_node_indices。
             // 如果節點是內部節點，將其子節點加入隊列 que。
 
-            size_t left_node_idx = curr_node.first_child_or_primitive;
-            size_t right_node_idx = left_node_idx + 1;
-            local_node_idx_map[left_node_idx] = cluster_node_indices[child_cluster_idx].size();
-            cluster_node_indices[child_cluster_idx].push_back(left_node_idx);
-            local_node_idx_map[right_node_idx] = cluster_node_indices[child_cluster_idx].size();
-            cluster_node_indices[child_cluster_idx].push_back(right_node_idx);
+            for (size_t id = 0; id < curr_node.primitive_count; ++id)
+            {
+                auto child_idx = curr_node.first_child_or_primitive + id;
 
-            que.emplace(left_node_idx, child_cluster_idx);
-            que.emplace(right_node_idx, child_cluster_idx);
+                local_node_idx_map[child_idx] = cluster_node_indices[child_cluster_idx].size();
+                cluster_node_indices[child_cluster_idx].push_back(child_idx);
+
+                que.emplace(child_idx, child_cluster_idx);
+            }
         }
 
         // fill cluster_idx_map, scaling_factors
@@ -351,6 +375,7 @@ namespace bvh_quantize
             int_bvh.clusters[i].inv_sx_inv_sw = inv_sw / scaling_factors[i];
             int_bvh.clusters[i].node_offset = tmp_node_offset;
             int_bvh.clusters[i].trig_offset = tmp_trig_offset;
+            int_bvh.clusters[i].num_nodes = cluster_node_indices[i].size();
 
             // fill int_bvh.trigs
             int tmp_local_trig_offset = 0;
@@ -377,6 +402,7 @@ namespace bvh_quantize
             {
                 node_t &curr_node = bvh.nodes[curr_node_idx];
                 int_node_t &curr_int_node = int_bvh.nodes[tmp_node_offset];
+                tmp_node_offset++;
 
                 // fill curr_int_node.bounds
                 std::array<uint8_t, 6> bounds = get_int_bounds(bvh, curr_node_idx, ref_indices[i], scaling_factors[i]);
@@ -385,7 +411,7 @@ namespace bvh_quantize
 
                 child_type_t child_type;
                 size_t left_node_idx = curr_node.first_child_or_primitive;
-                size_t right_node_idx = left_node_idx + 1;
+
                 if (curr_node.is_leaf())
                 {
                     child_type = child_type_t::LEAF;
@@ -394,8 +420,6 @@ namespace bvh_quantize
                 {
                     int curr_cluster_idx = cluster_idx_map[curr_node_idx];
                     int left_cluster_idx = cluster_idx_map[left_node_idx];
-                    int right_cluster_idx = cluster_idx_map[right_node_idx];
-                    assert(left_cluster_idx == right_cluster_idx);
 
                     if (curr_cluster_idx != left_cluster_idx)
                     {
@@ -447,7 +471,6 @@ namespace bvh_quantize
                     break;
                 }
                 }
-                tmp_node_offset++;
             }
         }
 
@@ -499,19 +522,11 @@ namespace bvh_quantize
         {
             int_node_v2_t &curr_node_v2 = int_bvh_v2.nodes_v2[i];
 
-            uint16_t left_child_data = curr_node_v2.left_child_data;
-            decoded_data_t left_decoded_data = decode_data(left_child_data);
-
-            size_t left_child_index = i;
-            size_t right_child_index = i + 1;
-
-            int_node_t &left_child = int_bvh.nodes[left_child_index];
-            int_node_t &right_child = int_bvh.nodes[right_child_index];
-
-            std::memcpy(curr_node_v2.left_bounds, left_child.bounds, sizeof(uint8_t) * 6);
-            std::memcpy(curr_node_v2.right_bounds, right_child.bounds, sizeof(uint8_t) * 6);
-            curr_node_v2.left_child_data = left_child.data;
-            curr_node_v2.right_child_data = right_child.data;
+            for (int j = 0; j < 6 && i + j < bvh.node_count; j++)
+            {
+                std::memcpy(curr_node_v2.bounds[j], int_bvh.nodes[i + j].bounds, sizeof(uint8_t) * 6);
+                curr_node_v2.data[j] = int_bvh.nodes[i + j].data;
+            }
         }
 
         return int_bvh_v2;

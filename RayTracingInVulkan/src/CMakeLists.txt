@@ -167,6 +167,7 @@ set(src_files_vulkan_raytracing
     Vulkan/RayTracing/ShaderBindingTable.hpp
     Vulkan/RayTracing/TopLevelAccelerationStructure.cpp
     Vulkan/RayTracing/TopLevelAccelerationStructure.hpp
+    Vulkan/RayTracing/vsim_acceleration_structure.hpp
 )
 
 set(src_files

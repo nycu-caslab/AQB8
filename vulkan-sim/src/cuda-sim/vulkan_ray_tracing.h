@@ -331,6 +331,7 @@ public:
     static void setDescriptorSet(struct DESCRIPTOR_SET_STRUCT *set);
 
     static void iterateDescriptorSet(struct DESCRIPTOR_SET_STRUCT *set);
+    static void VulkanRayTracing::traverse_int_bvh(const int_bvh_t &int_bvh);
 
     static void invoke_gpgpusim();
     static uint32_t registerShaders(char *shaderPath, gl_shader_stage shaderType);

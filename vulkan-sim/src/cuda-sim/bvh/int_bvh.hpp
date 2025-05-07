@@ -5,9 +5,9 @@
 #include <memory>
 
 #define INT_BVH_ALIGNMENT 64
-#define INT_BVH_CLUSTER_length 36
+#define INT_BVH_CLUSTER_length 40
 #define INT_BVH_TRIG_length 36
-#define INT_BVH_NODE_length 16
+#define INT_BVH_NODE_length 48
 #define INT_BVH_PRIMITIVE_INSTANCE_length 4
 
 namespace bvh_quantize
@@ -30,10 +30,8 @@ namespace bvh_quantize
     constexpr int field_c_bits = 15 - field_b_bits;
     constexpr int max_node_in_cluster_size = (1 << field_c_bits);
     constexpr size_t max_trig_in_leaf_size = (1 << field_b_bits) - 1;
-    // constexpr size_t max_trig_in_leaf_size = 6;
     constexpr int max_trig_in_cluster_size = max_node_in_cluster_size;
     constexpr int max_cluster_size = (1 << 15);
-
     constexpr auto inv_sw = static_cast<float>(1 << 7);
     constexpr int qx_max = (1 << 8) - 1;
 
@@ -52,10 +50,8 @@ namespace bvh_quantize
 
     struct int_node_t
     {
-        uint8_t left_bounds[6];
-        uint16_t left_child_data;
-        uint8_t right_bounds[6];
-        uint16_t right_child_data;
+        uint8_t bounds[6][6];
+        uint16_t data[6];
     };
 
     struct int_cluster_t
@@ -64,6 +60,7 @@ namespace bvh_quantize
         float inv_sx_inv_sw;
         uint32_t node_offset;
         uint32_t trig_offset;
+        uint32_t num_nodes;
     };
 
     struct int_bvh_t

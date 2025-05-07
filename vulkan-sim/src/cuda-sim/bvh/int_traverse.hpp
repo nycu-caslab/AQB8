@@ -24,6 +24,7 @@ namespace bvh_quantize
         uint8_t tmax_version;
         int32_t qy_max;
         uint8_t num_nodes_in_stk_2;
+        uint32_t num_nodes;
     };
 
     struct int_w_t

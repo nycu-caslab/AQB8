@@ -746,7 +746,7 @@ void shader_core_stats::print(FILE *fout) const
   fprintf(fout, "gpgpu_n_mem_texture = %d\n", gpgpu_n_mem_texture);
   fprintf(fout, "gpgpu_n_mem_const = %d\n", gpgpu_n_mem_const);
 
-  fprintf(fout, "gpgpu_n_rt_mem:\n");
+  fprintf(fout, "gpgpu_n_rt_mem: ");
   for (unsigned i = 0; i < static_cast<int>(TransactionType::UNDEFINED); i++)
   {
     fprintf(fout, "%d\t", gpgpu_n_rt_mem[i]);

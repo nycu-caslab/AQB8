@@ -54,11 +54,12 @@ namespace bvh
                 Statistics &statistics) const
         {
             assert(node.is_leaf());
-            size_t begin = node.first_child_or_primitive;
-            size_t end = begin + node.primitive_count;
-            for (size_t i = begin; i < end; ++i)
+            size_t primitive_index = node.first_child_or_primitive;
+            size_t primitive_count = node.primitive_count;
+
+            for (size_t i = 0; i < primitive_count; ++i)
             {
-                if (auto hit = primitive_intersector.intersect(i, ray, statistics))
+                if (auto hit = primitive_intersector.intersect(primitive_index + i, ray, statistics))
                 {
                     best_hit = hit;
                     if (primitive_intersector.any_hit)
@@ -66,6 +67,7 @@ namespace bvh
                     ray.tmax = hit->distance();
                 }
             }
+
             return best_hit;
         }
 
@@ -82,65 +84,57 @@ namespace bvh
 
             NodeIntersector node_intersector(ray);
 
-            // This traversal loop is eager, because it immediately processes leaves instead of pushing them on the stack.
-            // This is generally beneficial for performance because intersections will likely be found which will
-            // allow to cull more subtrees with the ray-box test of the traversal loop.
+            // Traversal stack
             Stack stack;
-            auto *left_child = &bvh.nodes[bvh.nodes[0].first_child_or_primitive];
-            while (true)
+            stack.push(0);
+
+            while (!stack.empty())
             {
+                size_t node_idx = stack.pop();
+                const auto &node = bvh.nodes[node_idx];
+
+                if (bvh_unlikely(node.is_leaf()))
+                {
+                    if (intersect_leaf(node, ray, best_hit, primitive_intersector, statistics) &&
+                        primitive_intersector.any_hit)
+                    {
+                        statistics.finalize++;
+                        return best_hit; // Early exit
+                    }
+
+                    continue;
+                }
+
                 statistics.traversal_steps++;
 
-                auto *right_child = left_child + 1;
-                auto distance_left = node_intersector.intersect(*left_child, ray);
-                auto distance_right = node_intersector.intersect(*right_child, ray);
+                // Collect valid children with distances
+                std::vector<std::pair<float, size_t>> children_distance;
+                size_t child_count = node.primitive_count;
 
-                if (distance_left.first <= distance_left.second)
+                for (size_t i = 0; i < child_count; ++i)
                 {
-                    if (bvh_unlikely(left_child->is_leaf()))
+                    auto child_idx = node.first_child_or_primitive + i;
+                    const auto &child = bvh.nodes[child_idx];
+                    auto distance = node_intersector.intersect(child, ray);
+
+                    if (distance.first <= distance.second)
                     {
-                        if (intersect_leaf(*left_child, ray, best_hit, primitive_intersector, statistics) &&
-                            primitive_intersector.any_hit)
-                            break;
-                        left_child = nullptr;
+                        children_distance.emplace_back(distance.first, child_idx);
                     }
                 }
-                else
-                    left_child = nullptr;
 
-                if (distance_right.first <= distance_right.second)
+                if (children_distance.size() > 1)
                 {
-                    if (bvh_unlikely(right_child->is_leaf()))
-                    {
-                        if (intersect_leaf(*right_child, ray, best_hit, primitive_intersector, statistics) &&
-                            primitive_intersector.any_hit)
-                            break;
-                        right_child = nullptr;
-                    }
+                    statistics.both_intersected++;
                 }
-                else
-                    right_child = nullptr;
 
-                if (left_child)
+                // Sort valid children by distance
+                std::sort(children_distance.begin(), children_distance.end());
+
+                // Push valid children onto the stack in reverse order
+                for (auto it = children_distance.rbegin(); it != children_distance.rend(); ++it)
                 {
-                    if (right_child)
-                    {
-                        statistics.both_intersected++;
-                        if (distance_left.first > distance_right.first)
-                            std::swap(left_child, right_child);
-                        stack.push(right_child->first_child_or_primitive);
-                    }
-                    left_child = &bvh.nodes[left_child->first_child_or_primitive];
-                }
-                else if (right_child)
-                {
-                    left_child = &bvh.nodes[right_child->first_child_or_primitive];
-                }
-                else
-                {
-                    if (stack.empty())
-                        break;
-                    left_child = &bvh.nodes[stack.pop()];
+                    stack.push(it->second);
                 }
             }
 

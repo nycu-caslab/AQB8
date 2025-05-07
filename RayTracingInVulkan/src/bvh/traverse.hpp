@@ -23,6 +23,7 @@ namespace bvh_quantize
         uint8_t tmax_version;
         int32_t qy_max;
         uint8_t num_nodes_in_stk_2;
+        uint32_t num_nodes;
     };
 
     struct cluster_data_v2_t
@@ -41,6 +42,7 @@ namespace bvh_quantize
         uint8_t tmax_version;
         int32_t qy_max;
         uint8_t num_nodes_in_stk_2;
+        uint32_t num_nodes;
     };
 
     struct int_w_t
@@ -257,6 +259,7 @@ namespace bvh_quantize
             cluster_data.tmax_version = global_tmax_version;
             cluster_data.qy_max = ceil_to_int32((ray.tmax - cluster_data.y_ref) * cluster_data.inv_sx_inv_sw);
             cluster_data.num_nodes_in_stk_2 = 0;
+            cluster_data.num_nodes = cluster.num_nodes;
             return true;
         };
 
@@ -298,14 +301,8 @@ namespace bvh_quantize
 
         while (true)
         {
-            int_node_t *left_node = &cluster_data.local_nodes[left_local_node_idx];
-            int_node_t *right_node = left_node + 1;
-
-            // std::cout << left_local_node_idx << ", "
-            //           << left_local_node_idx + 1 << std::endl;
-
-            // std::cout << left_local_node_idx + cluster_data.node_offset << ", "
-            //           << left_local_node_idx + 1 + cluster_data.node_offset << std::endl;
+            int_node_t nodes[6];
+            decoded_data_t decoded_data[6];
 
             // optional, but can reduce traversal steps
             if (cluster_data.tmax_version != global_tmax_version)
@@ -316,84 +313,63 @@ namespace bvh_quantize
             }
 
             statistics.traversal_steps++;
-            auto distance_left = intersect_int_bbox(cluster_data.qy_max, int_w, left_node->bounds,
-                                                    cluster_data.qb_l, cluster_data.qb_h);
-            auto distance_right = intersect_int_bbox(cluster_data.qy_max, int_w, right_node->bounds,
-                                                     cluster_data.qb_l, cluster_data.qb_h);
+            std::vector<std::pair<float, int>> sorted_nodes;
 
-            decoded_data_t left_decoded_data = decode_data(left_node->data);
-            decoded_data_t right_decoded_data = decode_data(right_node->data);
-
-            // print_bound(*left_node);
-            // print_data(left_decoded_data);
-            // print_bound(*right_node);
-            // print_data(right_decoded_data);
-
-            bool left_hit = false;
-            bool right_hit = false;
-
-            if (distance_left.has_value())
+            for (int i = 0; i < 6; i++)
             {
-                if (left_decoded_data.child_type == child_type_t::LEAF)
+                if (left_local_node_idx + i >= cluster_data.num_nodes)
+                    break;
+
+                nodes[i] = cluster_data.local_nodes[left_local_node_idx + i];
+
+                auto distance = intersect_int_bbox(cluster_data.qy_max, int_w, nodes[i].bounds,
+                                                   cluster_data.qb_l, cluster_data.qb_h);
+                decoded_data[i] = decode_data(nodes[i].data);
+
+                if (distance.has_value())
                 {
-                    if (auto hit = intersect_leaf(left_decoded_data, cluster_data, ray, int_bvh, statistics))
+                    if (decoded_data[i].child_type == child_type_t::LEAF)
                     {
-                        best_hit = hit;
-                        global_tmax_version++;
+                        if (auto hit = intersect_leaf(decoded_data[i], cluster_data, ray, int_bvh, statistics))
+                        {
+                            best_hit = hit;
+                            global_tmax_version++;
+                        }
                     }
-                }
-                else
-                {
-                    left_hit = true;
+                    else
+                    {
+                        sorted_nodes.emplace_back(distance.value(), i);
+                    }
                 }
             }
 
-            if (distance_right.has_value())
+            std::sort(sorted_nodes.begin(), sorted_nodes.end());
+
+            if (sorted_nodes.size() > 1)
+                statistics.both_intersected++;
+
+            for (size_t i = 1; i < sorted_nodes.size(); i++)
             {
-                if (right_decoded_data.child_type == child_type_t::LEAF)
+                int idx = sorted_nodes[i].second;
+
+                switch (decoded_data[idx].child_type)
                 {
-                    if (auto hit = intersect_leaf(right_decoded_data, cluster_data, ray, int_bvh, statistics))
-                    {
-                        best_hit = hit;
-                        global_tmax_version++;
-                    }
-                }
-                else
-                {
-                    right_hit = true;
+                case child_type_t::INTERNAL:
+                    cluster_data.num_nodes_in_stk_2++;
+                    stk_2.emplace(decoded_data[idx].idx, cluster_data.cluster_idx);
+                    break;
+                case child_type_t::SWITCH:
+                    stk_2.emplace(0, decoded_data[idx].idx);
+                    break;
+                default:
+                    assert(false);
                 }
             }
 
-            if (left_hit)
+            if (sorted_nodes.size() > 0)
             {
-                if (right_hit)
-                {
-                    statistics.both_intersected++;
-
-                    // ensure left_decoded_data is closer
-                    if (distance_left.value() > distance_right.value())
-                        std::swap(left_decoded_data, right_decoded_data);
-
-                    // push to stk_2
-                    switch (right_decoded_data.child_type)
-                    {
-                    case child_type_t::INTERNAL:
-                        cluster_data.num_nodes_in_stk_2++;
-                        stk_2.emplace(right_decoded_data.idx, cluster_data.cluster_idx);
-                        break;
-                    case child_type_t::SWITCH:
-                        stk_2.emplace(0, right_decoded_data.idx);
-                        break;
-                    default:
-                        assert(false);
-                    }
-                }
-                if (update_node_and_cluster(left_decoded_data))
-                    continue;
-            }
-            else if (right_hit)
-            {
-                if (update_node_and_cluster(right_decoded_data))
+                int idx = sorted_nodes[0].second;
+                if (update_node_and_cluster(decoded_data[idx]))
                     continue;
             }
 
@@ -508,6 +484,7 @@ namespace bvh_quantize
             cluster_data.tmax_version = global_tmax_version;
             cluster_data.qy_max = ceil_to_int32((ray.tmax - cluster_data.y_ref) * cluster_data.inv_sx_inv_sw);
             cluster_data.num_nodes_in_stk_2 = 0;
+            cluster_data.num_nodes = cluster.num_nodes;
             return true;
         };
 
@@ -547,32 +524,12 @@ namespace bvh_quantize
             }
         };
 
-        // int_node_v2_t *curr_node = &int_bvh_v2.root;
-        // bool traversed_root = false;
-
         while (true)
         {
             statistics.traversal_steps++;
-            // std::cout << curr_local_node_idx << std::endl;
-            // std::cout << curr_local_node_idx + cluster_data.node_offset << std::endl;
-
-            // if (traversed_root == true)
-            // {
-            //     curr_node = &cluster_data.local_nodes[curr_local_node_idx];
-            // }
-            // else
-            // {
-            //     traversed_root = true;
-            // }
 
             int_node_v2_t *curr_node = &cluster_data.local_nodes[curr_local_node_idx];
-            decoded_data_t left_decoded_data = decode_data(curr_node->left_child_data);
-            decoded_data_t right_decoded_data = decode_data(curr_node->right_child_data);
-
-            // print_bound(curr_node->left_bounds);
-            // print_data(left_decoded_data);
-            // print_bound(curr_node->right_bounds);
-            // print_data(right_decoded_data);
+            decoded_data_t decoded_data[6];
 
             // optional, but can reduce traversal steps
             if (cluster_data.tmax_version != global_tmax_version)
@@ -582,76 +539,61 @@ namespace bvh_quantize
                 cluster_data.qy_max = ceil_to_int32((ray.tmax - cluster_data.y_ref) * cluster_data.inv_sx_inv_sw);
             }
 
-            auto distance_left = intersect_int_bbox(cluster_data.qy_max, int_w, curr_node->left_bounds,
-                                                    cluster_data.qb_l, cluster_data.qb_h);
-            auto distance_right = intersect_int_bbox(cluster_data.qy_max, int_w, curr_node->right_bounds,
-                                                     cluster_data.qb_l, cluster_data.qb_h);
+            std::vector<std::pair<float, int>> sorted_nodes;
 
-            bool left_hit = false;
-            bool right_hit = false;
-
-            if (distance_left.has_value())
+            for (int i = 0; i < 6; i++)
             {
-                if (left_decoded_data.child_type == child_type_t::LEAF)
+                if (curr_local_node_idx + i >= cluster_data.num_nodes)
+                    break;
+
+                auto distance = intersect_int_bbox(cluster_data.qy_max, int_w, curr_node->bounds[i],
+                                                   cluster_data.qb_l, cluster_data.qb_h);
+                decoded_data[i] = decode_data(curr_node->data[i]);
+
+                if (distance.has_value())
                 {
-                    if (auto hit = intersect_leaf_v2(left_decoded_data, cluster_data, ray, int_bvh_v2, statistics))
+                    if (decoded_data[i].child_type == child_type_t::LEAF)
                     {
-                        best_hit = hit;
-                        global_tmax_version++;
+                        if (auto hit = intersect_leaf_v2(decoded_data[i], cluster_data, ray, int_bvh_v2, statistics))
+                        {
+                            best_hit = hit;
+                            global_tmax_version++;
+                        }
                     }
-                }
-                else
-                {
-                    left_hit = true;
+                    else
+                    {
+                        sorted_nodes.emplace_back(distance.value(), i);
+                    }
                 }
             }
 
-            if (distance_right.has_value())
+            std::sort(sorted_nodes.begin(), sorted_nodes.end());
+
+            if (sorted_nodes.size() > 1)
+                statistics.both_intersected++;
+
+            for (size_t i = 1; i < sorted_nodes.size(); i++)
             {
-                if (right_decoded_data.child_type == child_type_t::LEAF)
+                int idx = sorted_nodes[i].second;
+
+                switch (decoded_data[idx].child_type)
                 {
-                    if (auto hit = intersect_leaf_v2(right_decoded_data, cluster_data, ray, int_bvh_v2, statistics))
-                    {
-                        best_hit = hit;
-                        global_tmax_version++;
-                    }
-                }
-                else
-                {
-                    right_hit = true;
+                case child_type_t::INTERNAL:
+                    cluster_data.num_nodes_in_stk_2++;
+                    stk_2.emplace(decoded_data[idx].idx, cluster_data.cluster_idx);
+                    break;
+                case child_type_t::SWITCH:
+                    stk_2.emplace(0, decoded_data[idx].idx);
+                    break;
+                default:
+                    assert(false);
                 }
             }
 
-            if (left_hit)
+            if (sorted_nodes.size() > 0)
             {
-                if (right_hit)
-                {
-                    statistics.both_intersected++;
-
-                    // ensure left_decoded_data is closer
-                    if (distance_left.value() > distance_right.value())
-                        std::swap(left_decoded_data, right_decoded_data);
-
-                    // push to stk_2
-                    switch (right_decoded_data.child_type)
-                    {
-                    case child_type_t::INTERNAL:
-                        cluster_data.num_nodes_in_stk_2++;
-                        stk_2.emplace(right_decoded_data.idx, cluster_data.cluster_idx);
-                        break;
-                    case child_type_t::SWITCH:
-                        stk_2.emplace(0, right_decoded_data.idx);
-                        break;
-                    default:
-                        assert(false);
-                    }
-                }
-                if (update_node_and_cluster(left_decoded_data))
-                    continue;
-            }
-            else if (right_hit)
-            {
-                if (update_node_and_cluster(right_decoded_data))
+                int idx = sorted_nodes[0].second;
+                if (update_node_and_cluster(decoded_data[idx]))
                     continue;
             }
 

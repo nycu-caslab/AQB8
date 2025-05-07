@@ -30,7 +30,9 @@ namespace bvh
             IndexType primitive_count;
             IndexType first_child_or_primitive;
 
-            bool is_leaf() const { return primitive_count != 0; }
+            bool is_leaf_val;
+            bool is_leaf() const { return is_leaf_val; }
+            // bool is_leaf() const { return primitive_count != 0; }
 
             /// Accessor to simplify the manipulation of the bounding box of a node.
             /// This type is convertible to a `BoundingBox`.
@@ -107,55 +109,7 @@ namespace bvh
         std::unique_ptr<Node[]> nodes;
         std::unique_ptr<size_t[]> primitive_indices;
         size_t node_count = 0;
-
-        size_t calculate_data_size() const
-        {
-            size_t node_size = sizeof(Node);
-            size_t primitive_index_size = sizeof(size_t);
-            size_t total_node_data_size = node_size * node_count;
-            size_t total_primitive_indices_size = primitive_index_size * node_count;
-            return total_node_data_size + total_primitive_indices_size;
-        }
     };
-
-    template <typename Scalar>
-    void traverse(const Bvh<Scalar> &bvh, size_t node_index = 0, size_t depth = 0)
-    {
-        // Ensure there is at least one node to traverse
-        if (bvh.node_count == 0)
-            return;
-
-        const auto *nodes = bvh.nodes.get();
-        const auto *primitive_indices = bvh.primitive_indices.get();
-        const auto &node = nodes[node_index];
-
-        // Print the current node's information
-        printf("%*sNode %ld:\n", static_cast<int>(depth * 2), "", node_index);
-        auto bbox = node.bounding_box_proxy().to_bounding_box();
-        printf("%*s  BoundingBox: [%f, %f, %f] to [%f, %f, %f]\n",
-               static_cast<int>(depth * 2), "",
-               bbox.min[0], bbox.min[1], bbox.min[2],
-               bbox.max[0], bbox.max[1], bbox.max[2]);
-
-        if (node.is_leaf())
-        {
-            // Leaf node: print the primitive indices
-            printf("%*s  Primitives (index): ", static_cast<int>(depth * 2), "");
-            for (size_t i = 0; i < node.primitive_count; ++i)
-            {
-                printf("%ld ", primitive_indices[node.first_child_or_primitive + i]);
-            }
-            printf("\n");
-        }
-        else
-        {
-            // Internal node: traverse children
-            size_t left_child_index = node.first_child_or_primitive;
-            size_t right_child_index = left_child_index + 1;
-            traverse<Scalar>(bvh, left_child_index, depth + 1);
-            traverse<Scalar>(bvh, right_child_index, depth + 1);
-        }
-    }
 
 } // namespace bvh
 

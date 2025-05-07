@@ -4,6 +4,7 @@
 #include "BottomLevelGeometry.hpp"
 
 #include "build.hpp"
+#include "vsim_acceleration_structure.hpp"
 
 namespace Assets
 {
@@ -46,6 +47,14 @@ namespace Vulkan::RayTracing
 			size_t geometry_id);
 
 		void retrieve_triangles();
+
+		void collect_data(struct vsim_bvh_node *root,
+						  std::vector<uint64_t> &collect_node);
+		void convert_bvh(std::vector<uint64_t> &collect_node,
+						 std::vector<node_t> &nodes,
+						 std::vector<size_t> &primitive_indices);
+
+		void reset_bvh_bounds(bvh::Bvh<float> &bvh);
 		void check_correctness(bvh::Bvh<float> &bvh, int_bvh_t &int_bvh);
 		void check_correctness_v2(bvh::Bvh<float> &bvh, int_bvh_v2_t &int_bvh_v2);
 		void create_int_bvh_buffer(CommandPool &commandPool, bvh::Bvh<float> &bvh, int_bvh_v2_t &int_bvh);

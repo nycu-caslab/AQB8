@@ -10,6 +10,9 @@
 #include "bvh/single_ray_traverser.hpp"
 #include "bvh/primitive_intersectors.hpp"
 
+#include <unordered_map>
+#include <stack>
+
 typedef bvh::SingleRayTraverser<bvh_t> traverser_t;
 typedef bvh::ClosestPrimitiveIntersector<bvh_t, trig_t> primitive_intersector_t;
 
@@ -72,14 +75,38 @@ namespace Vulkan::RayTracing
 
 		// Build the bottom - level acceleration structure(BLAS)
 		deviceProcedures_.vkCmdBuildAccelerationStructuresKHR(commandBuffer, 1, &buildGeometryInfo_, &pBuildOffsetInfo);
+		struct vsim_bvh_node *root = (struct vsim_bvh_node *)buildGeometryInfo_.pNext;
 
-		// Build the BVH and convert to VSIM BVH
-		bvh_t bvh = build_bvh(trigs);
-		size_t node_count = bvh.node_count;
-		printf("(ycpin) Build BVH, node_count = %ld\n", node_count);
+		// Collect the node and leaf data using BFS
+		std::vector<uint64_t> collect_node;
+		collect_data(root, collect_node);
+
+		bvh_t bvh;
+		size_t node_count = collect_node.size();
+		size_t prim_count = trigs.size();
+
+		std::vector<node_t> nodes(node_count);
+		std::vector<size_t> primitive_indices(prim_count);
+
+		convert_bvh(collect_node, nodes, primitive_indices);
+
+		// Finalize the BVH structure with the nodes and primitive indices
+		bvh.node_count = node_count;
+		bvh.nodes = std::make_unique<node_t[]>(node_count);
+		for (size_t i = 0; i < node_count; ++i)
+		{
+			bvh.nodes[i] = nodes[i];
+		}
+		bvh.primitive_indices = std::make_unique<size_t[]>(prim_count);
+		for (size_t i = 0; i < prim_count; ++i)
+		{
+			bvh.primitive_indices[i] = primitive_indices[i];
+		}
+
+		reset_bvh_bounds(bvh);
 
 		float t_trv_int = 0.5;
-		float t_switch = 1;
+		float t_switch = 0.8;
 		float t_ist = 1;
 
 		int_bvh_t int_bvh = build_int_bvh(t_trv_int, t_switch, t_ist, trigs, bvh);
@@ -155,6 +182,148 @@ namespace Vulkan::RayTracing
 				trigs.emplace_back(triangleVertices[0], triangleVertices[1], triangleVertices[2]);
 			}
 		}
+	}
+
+	void BottomLevelAccelerationStructure::collect_data(struct vsim_bvh_node *root,
+														std::vector<uint64_t> &collect_node)
+	{
+		std::queue<vsim_bvh_node *> queue;
+		queue.push(root);
+
+		while (!queue.empty())
+		{
+			vsim_bvh_node *current = queue.front();
+			queue.pop();
+
+			collect_node.emplace_back((uint64_t)current);
+
+			if (!current->is_leaf)
+			{
+				for (unsigned i = 0; i < 6; i++)
+				{
+					if (current->children[i])
+					{
+						queue.push(current->children[i]);
+					}
+				}
+			}
+		}
+	}
+
+	void BottomLevelAccelerationStructure::convert_bvh(std::vector<uint64_t> &collect_node,
+													   std::vector<node_t> &nodes,
+													   std::vector<size_t> &primitive_indices)
+	{
+		int node_count = collect_node.size();
+		size_t leaf_i = 0;
+
+		std::unordered_map<uint64_t, size_t> node_index;
+		std::unordered_map<uint64_t, size_t> leaf_index;
+
+		for (size_t id = 0; id < node_count; ++id)
+		{
+			vsim_bvh_node *bvh_node = reinterpret_cast<vsim_bvh_node *>(collect_node[id]);
+
+			if (node_index.find(collect_node[id]) != node_index.end())
+				std::cerr << "Duplicate node found!" << std::endl;
+
+			node_index[collect_node[id]] = id;
+
+			if (bvh_node->is_leaf)
+			{
+				vsim_bvh_leaf *leaf = reinterpret_cast<vsim_bvh_leaf *>(bvh_node);
+				leaf_index[id] = leaf_i;
+
+				for (size_t i = 0; i < leaf->primitive_count; ++i)
+				{
+					primitive_indices[leaf_i] = leaf->primitive_index[i];
+					leaf_i++;
+				}
+			}
+
+			node_t &node = nodes[id];
+			memset(&node, 0, sizeof(node_t));
+		}
+
+		for (size_t id = 0; id < node_count; ++id)
+		{
+			node_t &node = nodes[id];
+			vsim_bvh_node *bvh_node = reinterpret_cast<vsim_bvh_node *>(collect_node[id]);
+
+			if (bvh_node->is_leaf)
+			{
+				continue;
+			}
+
+			uint8_t max_child_x = 0, max_child_y = 0, max_child_z = 0;
+			node.first_child_or_primitive = -1;
+			node.primitive_count = 0;
+			node.is_leaf_val = false;
+
+			for (size_t i = 0; i < 6; ++i)
+			{
+				if (bvh_node->children[i])
+				{
+					vsim_bvh_node *child = bvh_node->children[i];
+					size_t index = node_index[reinterpret_cast<uint64_t>(child)];
+
+					if (node.first_child_or_primitive == -1)
+					{
+						node.first_child_or_primitive = index;
+					}
+
+					if (child->is_leaf)
+					{
+						vsim_bvh_leaf *leaf = reinterpret_cast<vsim_bvh_leaf *>(child);
+
+						nodes[index].first_child_or_primitive = leaf_index[index];
+						nodes[index].primitive_count = leaf->primitive_count;
+						nodes[index].is_leaf_val = true;
+					}
+
+					node.primitive_count += 1;
+				}
+			}
+		}
+	}
+
+	void BottomLevelAccelerationStructure::reset_bvh_bounds(bvh::Bvh<float> &bvh)
+	{
+		if (bvh.node_count == 0)
+			return;
+
+		std::function<bvh::BoundingBox<float>(size_t)> reset_bounds_recursive =
+			[&](size_t node_index) -> bvh::BoundingBox<float>
+		{
+			auto &node = bvh.nodes[node_index];
+
+			if (node.is_leaf())
+			{
+				bbox_t bbox = bbox_t::empty();
+
+				for (size_t j = 0; j < node.primitive_count; ++j)
+				{
+					size_t trig_idx = bvh.primitive_indices[node.first_child_or_primitive + j];
+					bbox.extend(trigs[trig_idx].bounding_box());
+				}
+
+				node.bounding_box_proxy() = bbox;
+				return bbox;
+			}
+
+			bbox_t bbox = bbox_t::empty();
+
+			for (size_t i = 0; i < node.primitive_count; ++i)
+			{
+				size_t child_index = node.first_child_or_primitive + i;
+				bbox.extend(reset_bounds_recursive(child_index)); // 遞迴計算子節點邊界
+			}
+
+			node.bounding_box_proxy() = bbox;
+			return bbox;
+		};
+
+		reset_bounds_recursive(0);
 	}
 
 	void BottomLevelAccelerationStructure::check_correctness(bvh::Bvh<float> &bvh, int_bvh_t &int_bvh)
