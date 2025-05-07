@@ -43,36 +43,6 @@ namespace bvh
         Vector3<Scalar> p1() const { return p0 - e1; }
         Vector3<Scalar> p2() const { return p0 + e2; }
 
-        Scalar lower_x() const
-        {
-            return std::min(p0[0], std::min(p1()[0], p2()[0]));
-        }
-
-        Scalar upper_x() const
-        {
-            return std::max(p0[0], std::max(p1()[0], p2()[0]));
-        }
-
-        Scalar lower_y() const
-        {
-            return std::min(p0[1], std::min(p1()[1], p2()[1]));
-        }
-
-        Scalar upper_y() const
-        {
-            return std::max(p0[1], std::max(p1()[1], p2()[1]));
-        }
-
-        Scalar lower_z() const
-        {
-            return std::min(p0[2], std::min(p1()[2], p2()[2]));
-        }
-
-        Scalar upper_z() const
-        {
-            return std::max(p0[2], std::max(p1()[2], p2()[2]));
-        }
-
         BoundingBox<Scalar> bounding_box() const
         {
             BoundingBox<Scalar> bbox(p0);
@@ -174,6 +144,22 @@ namespace bvh
                         u = robust_max(u, Scalar(0));
                         v = robust_max(v, Scalar(0));
                     }
+
+                    // std::cout << "Hit {" << std::endl;
+                    // std::cout << "  Vertex 0: ("
+                    //           << p0[0] << ", "
+                    //           << p0[1] << ", "
+                    //           << p0[2] << ")" << std::endl;
+                    // std::cout << "  Vertex 1: ("
+                    //           << p1()[0] << ", "
+                    //           << p1()[1] << ", "
+                    //           << p1()[2] << ")" << std::endl;
+                    // std::cout << "  Vertex 2: ("
+                    //           << p2()[0] << ", "
+                    //           << p2()[1] << ", "
+                    //           << p2()[2] << ")" << std::endl;
+                    // std::cout << "}" << std::endl;
+
                     return std::make_optional(Intersection{t, u, v});
                 }
             }

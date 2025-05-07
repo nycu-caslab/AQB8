@@ -1748,7 +1748,7 @@ public:
     }
 
     // Initialize RT unit latency delays
-    sscanf(m_rt_intersection_latency_str, "%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u",
+    sscanf(m_rt_intersection_latency_str, "%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u",
            &m_rt_intersection_latency[TransactionType::BVH_STRUCTURE],                 // 4
            &m_rt_intersection_latency[TransactionType::BVH_INTERNAL_NODE],             // 8
            &m_rt_intersection_latency[TransactionType::BVH_INSTANCE_LEAF],             // 8
@@ -1757,10 +1757,10 @@ public:
            &m_rt_intersection_latency[TransactionType::BVH_QUAD_LEAF_HIT],             // 8
            &m_rt_intersection_latency[TransactionType::BVH_PROCEDURAL_LEAF],           // 8
 
-           &m_rt_intersection_latency[TransactionType::INT_BVH_CLUSTER],             // 8
-           &m_rt_intersection_latency[TransactionType::INT_BVH_TRIG],                // 8
-           &m_rt_intersection_latency[TransactionType::INT_BVH_NODE],                // 8
-           &m_rt_intersection_latency[TransactionType::INT_BVH_PRIMITIVE_INSTANCE]); // 4
+           &m_rt_intersection_latency[TransactionType::COMPRESS_BVH_TRIG],                // 8
+           &m_rt_intersection_latency[TransactionType::COMPRESS_BVH_NODE],                // 8
+           &m_rt_intersection_latency[TransactionType::COMPRESS_BVH_ROOT],                // 8
+           &m_rt_intersection_latency[TransactionType::COMPRESS_BVH_PRIMITIVE_INSTANCE]); // 4
     m_rt_intersection_latency[TransactionType::Intersection_Table_Load] = 1;
 
     sscanf(m_rt_coherence_engine_config_str, "%u,%u,%u,%c,%u,%u,%u,%f",
