@@ -1,0 +1,87 @@
+newmtl trevorGrayWoodDiffuse
+d 1 
+Ns 0.975 
+Ni 0 
+Ka 0 0 0
+Kd 0.37 0.31 0.23
+Ks 0 0 0
+
+newmtl trevorCottonDiffuse
+d 1 
+Ns 0.975 
+Ni 0 
+Ka 0 0 0
+Kd 0.87 0.83 0.77
+Ks 0 0 0
+
+newmtl trevorLightPlanksTarDiffuse
+d 1 
+Ns 0.975 
+Ni 0 
+Ka 0 0 0
+Kd 0.70 0.62 0.51
+Ks 0 0 0
+
+newmtl trevorDarkPlanksTarDiffuse
+d 1 
+Ns 0.975 
+Ni 0 
+Ka 0 0 0
+Kd 0.29 0.24 0.17
+Ks 0 0 0
+
+newmtl trevorRopeDiffuse
+illum 4
+Kd 0.982062 0.857638 0.400811
+Ka 0.00 0.00 0.00
+Tf 1.00 1.00 1.00
+Ni 1.00
+Ks 0.50 0.50 0.50
+
+newmtl trevorOldWindowDiffuse
+d 1 
+Ns 0.975 
+Ni 0 
+Ka 0 0 0
+Kd 0.982062 0.857638 0.400811
+Ks 0 0 0
+
+newmtl trevorDarkerWood
+d 1 
+Ns 0.975 
+Ni 0 
+Ka 0 0 0
+Kd 0.18 0.13 0.06
+Ks 0 0 0
+
+newmtl maikelBarrel
+d 1 
+Ns 0.975 
+Ni 0 
+Ka 0 0 0
+Kd 0.36 0.35 0.30
+Ks 0 0 0
+
+newmtl bodoBarrel
+d 1 
+Ns 0.975 
+Ni 0 
+Ka 0 0 0
+Kd 0.36 0.35 0.28
+Ks 0 0 0
+
+newmtl marvinCannonWood
+d 1 
+Ns 0.975 
+Ni 0 
+Ka 0 0 0
+Kd 0.36 0.33 0.30
+Ks 0 0 0
+
+newmtl marvinCannonBarrelDiffuse
+d 1 
+Ns 0.975 
+Ni 0 
+Ka 0 0 0
+Kd 0.38 0.35 0.30
+Ks 0 0 0

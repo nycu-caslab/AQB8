@@ -15,6 +15,10 @@
 - 27% reduction in hardware area  
 - 1.82× performance speedup over modern GPU RT accelerators
 
+![AQB8 Architecture](rtcore_boxarch.png)
+
+> Architectural modifications from a (a) baseline RT accelerator to our (b) quantized RT accelerator. The hardware block diagrams for the BOX and QBOX units are detailed in (c) and (d), respectively.
+
 ## AQB8 on Vulkan-Sim
 
 [![Docker Pulls](https://img.shields.io/docker/pulls/ycpin/aqb8-vulkan-sim)](https://hub.docker.com/r/ycpin/aqb8-vulkan-sim)
@@ -52,7 +56,7 @@ docker run -it --rm --name "$CONTAINER_NAME" "$IMAGE"
 
 The image contains six implementations of AQB8 on Vulkan-Sim, covering baseline, compressed, and `quantized versions (AQB8)`, each with 2-wide and 6-wide BVH trees:
 
-```swift
+```
 /home/
 ├── vulkan-sim-baseline-2wide/
 ├── vulkan-sim-baseline-6wide/
@@ -65,7 +69,6 @@ The image contains six implementations of AQB8 on Vulkan-Sim, covering baseline,
 ## Usage Instructions
 
 Navigate to one of the simulation folders, e.g.:
-Commands here assume you have navigated to `/home/vulkan-sim-quantized-2wide/vulkan-sim-root/`.
 
 ```bash
 cd /home/vulkan-sim-quantized-2wide/vulkan-sim-root/
