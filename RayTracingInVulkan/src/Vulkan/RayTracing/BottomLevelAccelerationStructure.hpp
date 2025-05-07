@@ -2,8 +2,7 @@
 
 #include "AccelerationStructure.hpp"
 #include "BottomLevelGeometry.hpp"
-
-#include "build.hpp"
+#include "vsim_acceleration_structure.hpp"
 
 namespace Assets
 {
@@ -18,7 +17,35 @@ namespace Vulkan
 	class DeviceMemory;
 }
 
-using namespace bvh_quantize;
+#include <iostream>
+#include <cassert>
+#include <vector>
+#include <fstream>
+
+#include "bvh/triangle.hpp"
+#include "bvh/bvh.hpp"
+#include "bvh/sweep_sah_builder.hpp"
+#include "bvh/single_ray_traverser.hpp"
+#include "bvh/single_ray_traverser_v2.hpp"
+#include "bvh/primitive_intersectors.hpp"
+
+constexpr size_t max_trig_in_leaf_size = 7;
+
+typedef bvh::Bvh<float> bvh_t;
+typedef bvh::Triangle<float> trig_t;
+typedef bvh::Ray<float> ray_t;
+typedef bvh::Vector3<float> vector_t;
+typedef bvh::BoundingBox<float> bbox_t;
+typedef bvh::SweepSahBuilder<bvh_t> builder_t;
+
+typedef bvh_t::Trig triangle_t;
+typedef bvh_t::Node node_t;
+typedef bvh_t::Node_v2 node_v2_t;
+typedef trig_t::Intersection intersection_t;
+
+typedef bvh::SingleRayTraverser<bvh_t> traverser_t;
+typedef bvh::SingleRayTraverser_v2<bvh_t> traverser_v2_t;
+typedef bvh::ClosestPrimitiveIntersector<bvh_t, trig_t> primitive_intersector_t;
 
 namespace Vulkan::RayTracing
 {
@@ -46,27 +73,31 @@ namespace Vulkan::RayTracing
 			size_t geometry_id);
 
 		void retrieve_triangles();
-		void check_correctness(bvh::Bvh<float> &bvh, int_bvh_t &int_bvh);
-		void check_correctness_v2(bvh::Bvh<float> &bvh, int_bvh_v2_t &int_bvh_v2);
-		void create_int_bvh_buffer(CommandPool &commandPool, bvh::Bvh<float> &bvh, int_bvh_v2_t &int_bvh);
 
-		const Vulkan::Buffer &int_bvh_ClustersBuffer() const { return *int_bvh_clusters_Buffer_; }
-		const Vulkan::Buffer &int_bvh_TrigsBuffer() const { return *int_bvh_trigs_Buffer_; }
-		const Vulkan::Buffer &int_bvh_NodeBuffer() const { return *int_bvh_nodes_Buffer_; }
-		const Vulkan::Buffer &int_bvh_PrimitiveIndicesBuffer() const { return *int_bvh_primitive_indices_Buffer_; }
+		void collect_data(struct vsim_bvh_node *root,
+						  std::vector<uint64_t> &collect_node);
+		void convert_bvh(std::vector<uint64_t> &collect_node,
+						 std::vector<node_t> &nodes,
+						 std::vector<size_t> &primitive_indices);
+		void reset_bvh_bounds(bvh::Bvh<float> &bvh);
+
+		void check_correctness(bvh::Bvh<float> &bvh_original, bvh::Bvh<float> &bvh);
+		void create_bvh_buffer(CommandPool &commandPool, bvh::Bvh<float> &bvh);
+
+		const Vulkan::Buffer &bvh_TrigsBuffer() const { return *bvh_trigs_Buffer_; }
+		const Vulkan::Buffer &bvh_NodeBuffer() const { return *bvh_nodes_Buffer_; }
+		const Vulkan::Buffer &bvh_PrimitiveIndicesBuffer() const { return *bvh_primitive_indices_Buffer_; }
 
 	private:
 		BottomLevelGeometry geometries_;
 		std::vector<trig_t> trigs;
 
 		// Declare buffer & device memory for INT BVH
-		std::unique_ptr<Buffer> int_bvh_clusters_Buffer_;
-		std::unique_ptr<DeviceMemory> int_bvh_clusters_BufferMemory_;
-		std::unique_ptr<Buffer> int_bvh_trigs_Buffer_;
-		std::unique_ptr<DeviceMemory> int_bvh_trigs_BufferMemory_;
-		std::unique_ptr<Buffer> int_bvh_nodes_Buffer_;
-		std::unique_ptr<DeviceMemory> int_bvh_nodes_BufferMemory_;
-		std::unique_ptr<Buffer> int_bvh_primitive_indices_Buffer_;
-		std::unique_ptr<DeviceMemory> int_bvh_primitive_indices_BufferMemory_;
+		std::unique_ptr<Buffer> bvh_trigs_Buffer_;
+		std::unique_ptr<DeviceMemory> bvh_trigs_BufferMemory_;
+		std::unique_ptr<Buffer> bvh_nodes_Buffer_;
+		std::unique_ptr<DeviceMemory> bvh_nodes_BufferMemory_;
+		std::unique_ptr<Buffer> bvh_primitive_indices_Buffer_;
+		std::unique_ptr<DeviceMemory> bvh_primitive_indices_BufferMemory_;
 	};
 }
