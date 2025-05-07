@@ -92,8 +92,8 @@ namespace bvh
                 statistics.traversal_steps++;
 
                 auto *right_child = left_child + 1;
-                auto distance_left = node_intersector.intersect(left_child->bounds, ray);
-                auto distance_right = node_intersector.intersect(right_child->bounds, ray);
+                auto distance_left = node_intersector.intersect(*left_child, ray);
+                auto distance_right = node_intersector.intersect(*right_child, ray);
 
                 if (distance_left.first <= distance_left.second)
                 {

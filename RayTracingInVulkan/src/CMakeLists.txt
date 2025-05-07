@@ -53,7 +53,6 @@ set(src_files_bvh
     bvh/spatial_split_bvh_builder.hpp
     bvh/triangle.hpp
     bvh/single_ray_traverser.hpp
-    bvh/single_ray_traverser_v2.hpp
     bvh/locally_ordered_clustering_builder.hpp
     bvh/ray.hpp
     bvh/bvh.hpp
@@ -156,6 +155,8 @@ set(src_files_vulkan_raytracing
     Vulkan/RayTracing/BottomLevelAccelerationStructure.hpp
     Vulkan/RayTracing/BottomLevelGeometry.cpp
     Vulkan/RayTracing/BottomLevelGeometry.hpp
+    Vulkan/RayTracing/build.cpp
+    Vulkan/RayTracing/build.hpp
     Vulkan/RayTracing/DeviceProcedures.cpp
     Vulkan/RayTracing/DeviceProcedures.hpp
     Vulkan/RayTracing/RayTracingPipeline.cpp

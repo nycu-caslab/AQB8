@@ -1209,7 +1209,7 @@ bool warp_inst_t::process_returned_mem_access(bool &mem_record_done, unsigned ti
 
         // Mark triangle hit to store to memory
         if (mem_record.type == TransactionType::BVH_QUAD_LEAF_HIT ||
-            mem_record.type == TransactionType::BVH_PRIMITIVE_INSTANCE) {
+            mem_record.type == TransactionType::INT_BVH_PRIMITIVE_INSTANCE) {
           m_per_scalar_thread[tid].ray_intersect = true;
           RT_DPRINTF("Buffer store detected for warp %d thread %d\n", m_uid, tid);
         }

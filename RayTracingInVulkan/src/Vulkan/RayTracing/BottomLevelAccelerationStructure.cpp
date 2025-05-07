@@ -6,6 +6,13 @@
 #include "Vulkan/Buffer.hpp"
 #include "Vulkan/BufferUtil.hpp"
 
+#include "bvh/traverse.hpp"
+#include "bvh/single_ray_traverser.hpp"
+#include "bvh/primitive_intersectors.hpp"
+
+typedef bvh::SingleRayTraverser<bvh_t> traverser_t;
+typedef bvh::ClosestPrimitiveIntersector<bvh_t, trig_t> primitive_intersector_t;
+
 namespace Vulkan::RayTracing
 {
 
@@ -66,24 +73,27 @@ namespace Vulkan::RayTracing
 		// Build the bottom - level acceleration structure(BLAS)
 		deviceProcedures_.vkCmdBuildAccelerationStructuresKHR(commandBuffer, 1, &buildGeometryInfo_, &pBuildOffsetInfo);
 
-		// Build BVH
-		auto [bboxes, centers] = bvh::compute_bounding_boxes_and_centers(trigs.data(), trigs.size());
-		auto global_bbox = bvh::compute_bounding_boxes_union(bboxes.get(), trigs.size());
+		// Build the BVH and convert to VSIM BVH
+		bvh_t bvh = build_bvh(trigs);
+		size_t node_count = bvh.node_count;
+		printf("(ycpin) Build BVH, node_count = %ld\n", node_count);
 
-		bvh_t bvh;
-		builder_t builder(bvh);
-		builder.max_leaf_size = max_trig_in_leaf_size;
-		builder.build(global_bbox, bboxes.get(), centers.get(), trigs.size());
+		float t_trv_int = 0.5;
+		float t_switch = 1;
+		float t_ist = 1;
 
-		bvh.convert_nodes(bvh.nodes, bvh.node_count);
-		std::cout << "(ycpin) BVH node count: " << bvh.node_count << std::endl;
-		std::cout << "(ycpin) BVH_v2 node count: " << bvh.node_count_v2 << std::endl;
+		int_bvh_t int_bvh = build_int_bvh(t_trv_int, t_switch, t_ist, trigs, bvh);
+		int_bvh_v2_t int_bvh_v2 = convert_nodes(int_bvh, bvh, trigs);
+		printf("(ycpin) Build INT BVH, Clustering...\n");
 
-		check_correctness(bvh);
+		check_correctness(bvh, int_bvh);
 		printf("(ycpin) Check correctness\n");
 
-		create_bvh_buffer(commandPool, bvh);
-		printf("(ycpin) Create buffer & device memory BVH\n");
+		check_correctness_v2(bvh, int_bvh_v2);
+		printf("(ycpin) Check correctness v2\n");
+
+		create_int_bvh_buffer(commandPool, bvh, int_bvh_v2);
+		printf("(ycpin) Create buffer & device memory for INT BVH\n");
 	}
 
 	void BottomLevelAccelerationStructure::retrieve_triangles()
@@ -147,154 +157,228 @@ namespace Vulkan::RayTracing
 		}
 	}
 
-	void BottomLevelAccelerationStructure::check_correctness(bvh::Bvh<float> &bvh)
+	void BottomLevelAccelerationStructure::check_correctness(bvh::Bvh<float> &bvh, int_bvh_t &int_bvh)
 	{
-		traverser_t traverser(bvh);
-		traverser_v2_t traverser_v2(bvh);
-
-		primitive_intersector_t primitive_intersector(bvh, trigs.data());
-		primitive_intersector_t primitive_intersector_v2(bvh, trigs.data());
-
-		traverser_t::Statistics statistics;
-		traverser_v2_t::Statistics statistics_v2;
-
 		intmax_t correct_rays = 0;
 		intmax_t total_rays = 0;
 
+		traverser_t full_traverser(bvh);
+		primitive_intersector_t primitive_intersector(bvh, trigs.data());
+		traverser_t::Statistics full_statistics;
+		statistics_t int_statistics;
 		std::ifstream ray_fs("../../../assets/ray/kitchen.ray");
-		assert(ray_fs.is_open());
 
 		for (float r[7]; ray_fs.read((char *)r, 7 * sizeof(float)); total_rays++)
 		{
-			// std::cout << total_rays << std::endl;
-
-			float magnitude = std::sqrt(r[3] * r[3] +
-										r[4] * r[4] +
-										r[5] * r[5]);
-			r[3] /= magnitude;
-			r[4] /= magnitude;
-			r[5] /= magnitude;
-
 			ray_t ray(
 				vector_t(r[0], r[1], r[2]),
 				vector_t(r[3], r[4], r[5]),
 				0.f,
 				r[6]);
 
-			// std::cout << r[0] << ", " << r[1] << ", " << r[2] << std::endl;
-			// std::cout << r[3] << ", " << r[4] << ", " << r[5] << std::endl;
+			auto full_result = full_traverser.traverse(ray, primitive_intersector, full_statistics);
+			auto int_result = int_traverse(int_bvh, trigs.data(), ray, int_statistics);
 
-			auto result = traverser.traverse(ray, primitive_intersector, statistics);
-			auto result_v2 = traverser_v2.traverse(ray, primitive_intersector_v2, statistics_v2);
-
-			if (result.has_value())
+			if (full_result.has_value())
 			{
-				if (result_v2.has_value() &&
-					result_v2->intersection.t == result->intersection.t &&
-					result_v2->intersection.u == result->intersection.u &&
-					result_v2->intersection.v == result->intersection.v)
+				if (int_result.has_value() &&
+					int_result->t == full_result->intersection.t &&
+					int_result->u == full_result->intersection.u &&
+					int_result->v == full_result->intersection.v)
 					correct_rays++;
 			}
-			else if (!result_v2.has_value())
+			else if (!int_result.has_value())
 			{
 				correct_rays++;
 			}
 		}
 
-		std::cout << "(vanilla)" << std::endl;
-		std::cout << "  traversal_steps: " << statistics.traversal_steps << std::endl;
-		std::cout << "  both_intersected: " << statistics.both_intersected << std::endl;
-		std::cout << "  intersections_a: " << statistics.intersections_a << std::endl;
-		std::cout << "  intersections_b: " << statistics.intersections_b << std::endl;
-		std::cout << "  finalize: " << statistics.finalize << std::endl;
+		std::cout << "  (vanilla)" << std::endl;
+		std::cout << "    traversal_steps: " << full_statistics.traversal_steps << std::endl;
+		std::cout << "    both_intersected: " << full_statistics.both_intersected << std::endl;
+		std::cout << "    intersections_a: " << full_statistics.intersections_a << std::endl;
+		std::cout << "    intersections_b: " << full_statistics.intersections_b << std::endl;
+		std::cout << "    finalize: " << full_statistics.finalize << std::endl;
 
-		std::cout << "(v2)" << std::endl;
-		std::cout << "  traversal_steps: " << statistics_v2.traversal_steps << std::endl;
-		std::cout << "  both_intersected: " << statistics_v2.both_intersected << std::endl;
-		std::cout << "  intersections_a: " << statistics_v2.intersections_a << std::endl;
-		std::cout << "  intersections_b: " << statistics_v2.intersections_b << std::endl;
-		std::cout << "  finalize: " << statistics_v2.finalize << std::endl;
+		std::cout << "  (quantized)" << std::endl;
+		std::cout << "    intersect_bbox: " << int_statistics.intersect_bbox << std::endl;
+		std::cout << "    push_cluster: " << int_statistics.push_cluster << std::endl;
+		std::cout << "    recompute_qymax: " << int_statistics.recompute_qymax << std::endl;
+		std::cout << "    traversal_steps: " << int_statistics.traversal_steps << std::endl;
+		std::cout << "    both_intersected: " << int_statistics.both_intersected << std::endl;
+		std::cout << "    intersections_a: " << int_statistics.bvh_statistics.intersections_a << std::endl;
+		std::cout << "    intersections_b: " << int_statistics.bvh_statistics.intersections_b << std::endl;
+		std::cout << "    finalize: " << int_statistics.finalize << std::endl;
 
-		std::cout << "total_rays: " << total_rays << std::endl;
-		std::cout << "correct_rays: " << correct_rays << std::endl;
+		std::cout << "  total_rays: " << total_rays << std::endl;
+		std::cout << "  correct_rays: " << correct_rays << std::endl;
 	}
 
-	void BottomLevelAccelerationStructure::create_bvh_buffer(CommandPool &commandPool, bvh::Bvh<float> &bvh)
+	void BottomLevelAccelerationStructure::check_correctness_v2(bvh::Bvh<float> &bvh, int_bvh_v2_t &int_bvh_v2)
 	{
-		bvh_trigs_Buffer_.reset();
-		bvh_trigs_BufferMemory_.reset();
-		bvh_nodes_Buffer_.reset();
-		bvh_nodes_BufferMemory_.reset();
-		bvh_primitive_indices_Buffer_.reset();
-		bvh_primitive_indices_BufferMemory_.reset();
+		intmax_t correct_rays = 0;
+		intmax_t total_rays = 0;
+
+		traverser_t full_traverser(bvh);
+		primitive_intersector_t primitive_intersector(bvh, trigs.data());
+		traverser_t::Statistics full_statistics;
+		statistics_t int_statistics;
+		std::ifstream ray_fs("../../../assets/ray/kitchen.ray");
+
+		for (float r[7]; ray_fs.read((char *)r, 7 * sizeof(float)); total_rays++)
+		{
+			ray_t ray(
+				vector_t(r[0], r[1], r[2]),
+				vector_t(r[3], r[4], r[5]),
+				0.f,
+				r[6]);
+
+			auto full_result = full_traverser.traverse(ray, primitive_intersector, full_statistics);
+			auto int_result = int_traverse_v2(int_bvh_v2, trigs.data(), ray, int_statistics);
+
+			if (full_result.has_value())
+			{
+				if (int_result.has_value() &&
+					int_result->t == full_result->intersection.t &&
+					int_result->u == full_result->intersection.u &&
+					int_result->v == full_result->intersection.v)
+					correct_rays++;
+			}
+			else if (!int_result.has_value())
+			{
+				correct_rays++;
+			}
+		}
+
+		std::cout << "  (vanilla)" << std::endl;
+		std::cout << "    traversal_steps: " << full_statistics.traversal_steps << std::endl;
+		std::cout << "    both_intersected: " << full_statistics.both_intersected << std::endl;
+		std::cout << "    intersections_a: " << full_statistics.intersections_a << std::endl;
+		std::cout << "    intersections_b: " << full_statistics.intersections_b << std::endl;
+		std::cout << "    finalize: " << full_statistics.finalize << std::endl;
+
+		std::cout << "  (quantized)" << std::endl;
+		std::cout << "    intersect_bbox: " << int_statistics.intersect_bbox << std::endl;
+		std::cout << "    push_cluster: " << int_statistics.push_cluster << std::endl;
+		std::cout << "    recompute_qymax: " << int_statistics.recompute_qymax << std::endl;
+		std::cout << "    traversal_steps: " << int_statistics.traversal_steps << std::endl;
+		std::cout << "    both_intersected: " << int_statistics.both_intersected << std::endl;
+		std::cout << "    intersections_a: " << int_statistics.bvh_statistics.intersections_a << std::endl;
+		std::cout << "    intersections_b: " << int_statistics.bvh_statistics.intersections_b << std::endl;
+		std::cout << "    finalize: " << int_statistics.finalize << std::endl;
+
+		std::cout << "  total_rays: " << total_rays << std::endl;
+		std::cout << "  correct_rays: " << correct_rays << std::endl;
+	}
+
+	void BottomLevelAccelerationStructure::create_int_bvh_buffer(CommandPool &commandPool, bvh::Bvh<float> &bvh, int_bvh_v2_t &int_bvh)
+	{
+		int_bvh_clusters_Buffer_.reset();
+		int_bvh_clusters_BufferMemory_.reset();
+		int_bvh_trigs_Buffer_.reset();
+		int_bvh_trigs_BufferMemory_.reset();
+		int_bvh_nodes_Buffer_.reset();
+		int_bvh_nodes_BufferMemory_.reset();
+		int_bvh_primitive_indices_Buffer_.reset();
+		int_bvh_primitive_indices_BufferMemory_.reset();
 
 		constexpr auto flags = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT |
 							   VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
 
-		// Create buffer for trigs
-		std::cout << "(ycpin) Size of trigs: " << trigs.size() << std::endl;
-		std::vector<triangle_t> trigsVector;
-
-		for (size_t i = 0; i < trigs.size(); ++i)
+		// Create buffer for clusters
+		if (int_bvh.clusters)
 		{
-			auto &item = trigs[i];
-			triangle_t triangle;
+			std::cout << "(ycpin) Size of int_bvh_clusters: " << int_bvh.num_clusters << std::endl;
+			std::vector<int_cluster_t> clustersVector;
 
-			triangle.v[0][0] = item.p0[0];
-			triangle.v[0][1] = item.p0[1];
-			triangle.v[0][2] = item.p0[2];
-			triangle.v[1][0] = item.p1()[0];
-			triangle.v[1][1] = item.p1()[1];
-			triangle.v[1][2] = item.p1()[2];
-			triangle.v[2][0] = item.p2()[0];
-			triangle.v[2][1] = item.p2()[1];
-			triangle.v[2][2] = item.p2()[2];
+			for (size_t i = 0; i < int_bvh.num_clusters; ++i)
+			{
+				auto &item = int_bvh.clusters[i];
+				clustersVector.emplace_back(item);
+			}
 
-			trigsVector.emplace_back(triangle);
+			Vulkan::BufferUtil::CreateDeviceBuffer(
+				commandPool,
+				"int_bvh_clusters",
+				flags,
+				clustersVector,
+				int_bvh_clusters_Buffer_,
+				int_bvh_clusters_BufferMemory_);
 		}
 
-		Vulkan::BufferUtil::CreateDeviceBuffer(
-			commandPool,
-			"bvh_trigs",
-			flags,
-			trigsVector,
-			bvh_trigs_Buffer_,
-			bvh_trigs_BufferMemory_);
+		// Create buffer for trigs
+		if (int_bvh.trigs)
+		{
+			std::cout << "(ycpin) Size of int_bvh_trigs: " << trigs.size() << std::endl;
+			std::vector<triangle_t> trigsVector;
+
+			for (size_t i = 0; i < trigs.size(); ++i)
+			{
+				auto &item = int_bvh.trigs[i];
+				triangle_t triangle;
+
+				triangle.v[0][0] = item.p0[0];
+				triangle.v[0][1] = item.p0[1];
+				triangle.v[0][2] = item.p0[2];
+				triangle.v[1][0] = item.p1()[0];
+				triangle.v[1][1] = item.p1()[1];
+				triangle.v[1][2] = item.p1()[2];
+				triangle.v[2][0] = item.p2()[0];
+				triangle.v[2][1] = item.p2()[1];
+				triangle.v[2][2] = item.p2()[2];
+
+				trigsVector.emplace_back(triangle);
+			}
+
+			Vulkan::BufferUtil::CreateDeviceBuffer(
+				commandPool,
+				"int_bvh_trigs",
+				flags,
+				trigsVector,
+				int_bvh_trigs_Buffer_,
+				int_bvh_trigs_BufferMemory_);
+		}
 
 		// Create buffer for nodes
-		std::cout << "(ycpin) Size of bvh_nodes: " << bvh.node_count_v2 << std::endl;
-		std::vector<node_v2_t> nodesVector;
-
-		for (size_t i = 0; i < bvh.node_count_v2; ++i)
+		if (int_bvh.nodes_v2)
 		{
-			auto &item = bvh.nodes_v2[i];
-			nodesVector.emplace_back(item);
-		}
+			std::cout << "(ycpin) Size of int_bvh_nodes: " << bvh.node_count << std::endl;
+			std::vector<int_node_v2_t> nodesVector;
 
-		Vulkan::BufferUtil::CreateDeviceBuffer(
-			commandPool,
-			"bvh_nodes",
-			flags,
-			nodesVector,
-			bvh_nodes_Buffer_,
-			bvh_nodes_BufferMemory_);
+			for (size_t i = 0; i < bvh.node_count; ++i)
+			{
+				auto &item = int_bvh.nodes_v2[i];
+				nodesVector.emplace_back(item);
+			}
+
+			Vulkan::BufferUtil::CreateDeviceBuffer(
+				commandPool,
+				"int_bvh_nodes",
+				flags,
+				nodesVector,
+				int_bvh_nodes_Buffer_,
+				int_bvh_nodes_BufferMemory_);
+		}
 
 		// Create buffer for primitive indices
-		std::cout << "(ycpin) Size of bvh_primitive_indices: " << trigs.size() << std::endl;
-		std::vector<uint32_t> primitiveIndicesVector;
-
-		for (size_t i = 0; i < trigs.size(); ++i)
+		if (int_bvh.primitive_indices)
 		{
-			auto &item = bvh.primitive_indices[i];
-			primitiveIndicesVector.emplace_back((uint32_t)item);
-		}
+			std::cout << "(ycpin) Size of int_bvh_primitive_indices: " << trigs.size() << std::endl;
+			std::vector<uint32_t> primitiveIndicesVector;
 
-		Vulkan::BufferUtil::CreateDeviceBuffer(
-			commandPool,
-			"bvh_primitive_indices",
-			flags,
-			primitiveIndicesVector,
-			bvh_primitive_indices_Buffer_,
-			bvh_primitive_indices_BufferMemory_);
+			for (size_t i = 0; i < trigs.size(); ++i)
+			{
+				auto &item = int_bvh.primitive_indices[i];
+				primitiveIndicesVector.emplace_back((uint32_t)item);
+			}
+
+			Vulkan::BufferUtil::CreateDeviceBuffer(
+				commandPool,
+				"int_bvh_primitive_indices",
+				flags,
+				primitiveIndicesVector,
+				int_bvh_primitive_indices_Buffer_,
+				int_bvh_primitive_indices_BufferMemory_);
+		}
 	}
 }

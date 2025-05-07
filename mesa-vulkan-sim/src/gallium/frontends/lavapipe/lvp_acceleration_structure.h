@@ -54,9 +54,6 @@ struct vsim_bvh_leaf
    uint8_t is_leaf;
    uint32_t geometry_id;
    uint32_t primitive_id;
-
-   uint8_t primitive_count;
-   uint32_t primitive_index[7];
 };
 
 void print_vec4(struct vsim_bvh_vec4f val);
@@ -65,7 +62,5 @@ void print_tri(struct vsim_bvh_triangle val);
 void print_node(struct vsim_bvh_node val);
 void print_leaf(struct vsim_bvh_leaf val);
 void embree_error_function(void *userPtr, enum RTCError error, const char *str);
-
-void *copy_bvh_tree(void *node);
 
 #endif /* VSIM_ACCELERATION_STRUCTURE_H */

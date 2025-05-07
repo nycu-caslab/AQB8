@@ -173,6 +173,7 @@ namespace bvh
 #pragma omp parallel for
         for (size_t i = 0; i < primitive_count; ++i)
         {
+            // 計算給定的一組幾何原始物體（Primitive）的包圍盒和中心點
             bounding_boxes[i] = primitives[i].bounding_box();
             centers[i] = primitives[i].center();
         }
@@ -189,6 +190,7 @@ namespace bvh
 #pragma omp declare reduction(bbox_extend : BoundingBox<Scalar> : omp_out.extend(omp_in)) \
     initializer(omp_priv = BoundingBox<Scalar>::empty())
 
+        // 合併包圍盒，產生聯集包圍盒
 #pragma omp parallel for reduction(bbox_extend : bbox)
         for (size_t i = 0; i < count; ++i)
             bbox.extend(bboxes[i]);

@@ -61,14 +61,17 @@ namespace Vulkan::RayTracing
 				// Cylinder Procedural buffer.
 				{11, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_INTERSECTION_BIT_KHR},
 
-				// bvh_trigs buffer
+				// int_bvh_clusters buffer
 				{12, 1, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_RAYGEN_BIT_KHR},
 
-				// bvh_nodes buffer
+				// int_bvh_trigs buffer
 				{13, 1, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_RAYGEN_BIT_KHR},
 
-				// bvh_primitive_indices buffer
+				// int_bvh_nodes buffer
 				{14, 1, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_RAYGEN_BIT_KHR},
+
+				// int_bvh_primitive_indices buffer
+				{15, 1, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_RAYGEN_BIT_KHR},
 
 				// Mandelbulb Procedural buffer.
 				// {12, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_INTERSECTION_BIT_KHR}
@@ -181,23 +184,29 @@ namespace Vulkan::RayTracing
 				descriptorWrites.push_back(descriptorSets.Bind(i, 11, proceduralCylinderBufferInfo));
 			}
 
+			// bvh_clusters buffer
+			VkDescriptorBufferInfo int_bvh_clusters_Buffer = {};
+			int_bvh_clusters_Buffer.buffer = bottomAccelerationStructure.int_bvh_ClustersBuffer().Handle();
+			int_bvh_clusters_Buffer.range = VK_WHOLE_SIZE;
+			descriptorWrites.push_back(descriptorSets.Bind(i, 12, int_bvh_clusters_Buffer));
+
 			// bvh_trigs buffer
-			VkDescriptorBufferInfo bvh_trigs_Buffer = {};
-			bvh_trigs_Buffer.buffer = bottomAccelerationStructure.bvh_TrigsBuffer().Handle();
-			bvh_trigs_Buffer.range = VK_WHOLE_SIZE;
-			descriptorWrites.push_back(descriptorSets.Bind(i, 12, bvh_trigs_Buffer));
+			VkDescriptorBufferInfo int_bvh_trigs_Buffer = {};
+			int_bvh_trigs_Buffer.buffer = bottomAccelerationStructure.int_bvh_TrigsBuffer().Handle();
+			int_bvh_trigs_Buffer.range = VK_WHOLE_SIZE;
+			descriptorWrites.push_back(descriptorSets.Bind(i, 13, int_bvh_trigs_Buffer));
 
 			// bvh_nodes buffer
-			VkDescriptorBufferInfo bvh_nodes_Buffer = {};
-			bvh_nodes_Buffer.buffer = bottomAccelerationStructure.bvh_NodeBuffer().Handle();
-			bvh_nodes_Buffer.range = VK_WHOLE_SIZE;
-			descriptorWrites.push_back(descriptorSets.Bind(i, 13, bvh_nodes_Buffer));
+			VkDescriptorBufferInfo int_bvh_nodes_Buffer = {};
+			int_bvh_nodes_Buffer.buffer = bottomAccelerationStructure.int_bvh_NodeBuffer().Handle();
+			int_bvh_nodes_Buffer.range = VK_WHOLE_SIZE;
+			descriptorWrites.push_back(descriptorSets.Bind(i, 14, int_bvh_nodes_Buffer));
 
 			// bvh_primitive_indices buffer
-			VkDescriptorBufferInfo bvh_primitive_indices_Buffer = {};
-			bvh_primitive_indices_Buffer.buffer = bottomAccelerationStructure.bvh_PrimitiveIndicesBuffer().Handle();
-			bvh_primitive_indices_Buffer.range = VK_WHOLE_SIZE;
-			descriptorWrites.push_back(descriptorSets.Bind(i, 14, bvh_primitive_indices_Buffer));
+			VkDescriptorBufferInfo int_bvh_primitive_indices_Buffer = {};
+			int_bvh_primitive_indices_Buffer.buffer = bottomAccelerationStructure.int_bvh_PrimitiveIndicesBuffer().Handle();
+			int_bvh_primitive_indices_Buffer.range = VK_WHOLE_SIZE;
+			descriptorWrites.push_back(descriptorSets.Bind(i, 15, int_bvh_primitive_indices_Buffer));
 
 			// Procedural Mandelbulb buffer (optional)
 			// VkDescriptorBufferInfo proceduralMandelbulbBufferInfo = {};

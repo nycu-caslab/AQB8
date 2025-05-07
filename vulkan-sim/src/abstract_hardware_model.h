@@ -210,9 +210,10 @@ enum class TransactionType
   BVH_PROCEDURAL_LEAF,
   Intersection_Table_Load,
 
-  BVH_TRIG,
-  BVH_NODE,
-  BVH_PRIMITIVE_INSTANCE,
+  INT_BVH_CLUSTER,
+  INT_BVH_TRIG,
+  INT_BVH_NODE,
+  INT_BVH_PRIMITIVE_INSTANCE,
 
   UNDEFINED,
 };
