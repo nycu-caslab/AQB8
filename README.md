@@ -3,7 +3,7 @@
 **Yen-Chieh Huang, Chen-Pin Yang, Tsung Tai Yeh**  
 *The 52nd Annual International Symposium on Computer Architecture (ISCA), June 21–25, 2025, Tokyo, Japan.*
 
-\[[paper](https://guthib.com/)\]
+[Paper Link](AQB8%20Energy-Efficient%20Ray%20Tracing%20Accelerator%20through%20Multi-Level%20Quantization.pdf)
 
 ## Introduction
 
@@ -54,16 +54,30 @@ docker run -it --rm --name "$CONTAINER_NAME" "$IMAGE"
 
 ## Inside the Container
 
-The image contains six implementations of AQB8 on Vulkan-Sim, covering baseline, compressed, and `quantized versions (AQB8)`, each with 2-wide and 6-wide BVH trees:
+The image includes six implementations of AQB8 on Vulkan-Sim, covering **baseline**, **compressed**, and **quantized (AQB8)** versions, each with 2-wide and 6-wide BVH trees.  
+
+Each folder corresponds to a Git branch containing a specific implementation:
 
 ```
-/home/
-├── vulkan-sim-baseline-2wide/
-├── vulkan-sim-baseline-6wide/
-├── vulkan-sim-compress-2wide/
-├── vulkan-sim-compress-6wide/
-├── vulkan-sim-quantized-2wide/
-└── vulkan-sim-quantized-6wide/
+/home/                                 <branch-name>
+├── vulkan-sim-baseline-2wide/       ← baseline-2wide
+├── vulkan-sim-baseline-6wide/       ← baseline-6wide
+├── vulkan-sim-compress-2wide/       ← compress-2wide
+├── vulkan-sim-compress-6wide/       ← compress-6wide
+├── vulkan-sim-quantized-2wide/      ← AQB8-2wide
+└── vulkan-sim-quantized-6wide/      ← AQB8-6wide
+```
+
+## Branch Structure and Implementations
+
+Each implementation is maintained in its own dedicated **Git branch**, named to match the corresponding folder. You can switch between them using:
+
+```bash
+git checkout <branch-name>
+```
+
+```bash
+git checkout AQB8-2wide
 ```
 
 ## Usage Instructions
