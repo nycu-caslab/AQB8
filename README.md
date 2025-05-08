@@ -23,7 +23,7 @@
 
 [![Docker Pulls](https://img.shields.io/docker/pulls/ycpin/aqb8-vulkan-sim)](https://hub.docker.com/r/ycpin/aqb8-vulkan-sim)
 
-We provide a Docker image to run AQB8 on [Vulkan-Sim](https://github.com/ubc-aamodt-group/vulkan-sim).  
+We provide a Docker image to run AQB8 on [Vulkan-Sim](https://people.ece.ubc.ca/aamodt/publications/papers/saed.micro2022.pdf).  
 > Make sure [Docker](https://docs.docker.com/get-docker/) is installed before proceeding.
 
 ## Quick Start
