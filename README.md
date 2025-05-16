@@ -84,6 +84,8 @@ The core hardware units of the RT accelerator as described in the paper correspo
 * **QBOX Unit** (Handles INT8 quantized ray-box intersection tests in AQB8):
     * `AQB8-2/src/bbox.h`
 * **TRV Unit** (Handles BVH traversal logic):
-    * `src/trv.sv` (Common across `AQB8-2`, `baseline-2`, `compress-2`)
+    * `baseline-2/src/trv.sv`
+    * `compress-2/src/trv.sv`
+    * `AQB8-2/src/trv.sv`
 * **TRIG Unit** (Handles ray-triangle intersection tests):
     * `src/ist.h` (Common across `AQB8-2`, `baseline-2`, `compress-2`)
