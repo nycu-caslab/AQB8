@@ -17,8 +17,8 @@ The repository is organized into three main configurations, reflecting different
 
 Each of these configuration directories (`baseline-2`, `compress-2`, `AQB8-2`) generally contains the following subdirectories:
 
-* **`data/`**: Contains input data, scripts for data generation (e.g., `generate.cpp`), BVH construction logic, and associated Makefiles.
-    * Notably, `AQB8-2/data/bvh-quantize/` holds core components for the multi-level quantization, BVH building, traversal, and utility tools. This sub-project contain C++/Python code used to generate inputs or models for the hardware. It has its own `README.md`, `CMakeLists.txt`, and `.gitmodules`.
+* **`data/`**: Contains BVH construction logics and scripts for data generation (i.e., `generate.cpp`).
+    * Notably, `AQB8-2/data/bvh-quantize/` holds core components for the multi-level quantization, BVH building, traversal, and utility tools.
 * **`include/`**: Header files for data types (e.g., `datatypes.h` for HLS, `datatypes.svh` for SystemVerilog), parameters (e.g., `params.h`, `params.vh`), and simulation utilities.
 * **`src/`**: Contains **synthesizable hardware source code**. This includes:
     * C++ files (e.g., `rtcore.cpp`, `bbox.h`) intended for High-Level Synthesis (HLS) to generate RTL.
