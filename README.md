@@ -1,6 +1,6 @@
 # AQB8 Project Hardware Code
 
-**Note:** This is the `RTL` branch of the AQB8 project, focusing on the **hardware implementation (RTL and HLS code)**. For full paper information, including citation, author details, and a comprehensive overview of the AQB8 project, please refer to the `main` branch of this repository.
+**Note:** This is the `RTL` branch of the AQB8 project, focusing on the **hardware implementation**. For full paper information, including citation, author details, and a comprehensive overview of the AQB8 project, please refer to the `main` branch of this repository.
 
 This repository contains the hardware source code and experimental setup for the AQB8 project.
 
@@ -26,12 +26,12 @@ Each of these configuration directories (`baseline-2`, `compress-2`, `AQB8-2`) g
 * **`test/`**: Contains **testing code for hardware verification**. This includes:
     * C++ testbenches (e.g., `tb_rtcore.cpp`) for HLS components.
     * SystemVerilog/Verilog testbenches (e.g., `tb_*.sv`) for RTL modules and system-level verification.
-* **`util/`**: Utility programs and scripts
-* **`work/`**: Scripts and Makefiles for synthesis (e.g., `syn.tcl`), power analysis (e.g., `pwr.tcl`), and simulation workflows for the hardware.
+* **`util/`**: Utility programs and scripts.
+* **`work/`**: Scripts for synthesis (e.g., `syn.tcl`), power analysis (e.g., `pwr.tcl`), and simulation workflows for the hardware.
 
 ## Features
 
-* Hardware implementation (RTL and HLS) of the **AQB8 ray tracing accelerator** architecture.
+* Hardware implementation of the **AQB8 ray tracing accelerator** architecture.
 * Hardware support for **multi-level quantization** in BVH trees.
 * BVH traversal logic optimized for **low-bit integer arithmetic** (INT8 for quantized BBs) in hardware.
 * Comparative hardware models:
@@ -41,11 +41,11 @@ Each of these configuration directories (`baseline-2`, `compress-2`, `AQB8-2`) g
 
 ## Dependencies
 
-* **Catapult HLS:** This tool is required if you intend to modify the HLS C++ sources (e.g., `rtcore.cpp`, `bbox.h`, `ist.h`) and regenerate the RTL code. The repository already provides pre-generated RTL from HLS (e.g., in `src/concat_rtl.v`), so this tool is not strictly necessary if you are only using the existing HLS-generated RTL.
+* **TSMC 40nm Cell Library:** Access to the TSMC 40nm standard cell libraries is necessary for the synthesis and power analysis steps to accurately target the technology node used in the paper.
 * **QuestaSim:** For cycle-accurate hardware simulation.
 * **Design Compiler:** For RTL synthesis.
 * **PrimePower:** For power analysis.
-* **TSMC 40nm Cell Library:** Access to the TSMC 40nm standard cell libraries is necessary for the synthesis (`make syn` in `work/`) and power analysis steps to accurately target the technology node used in the paper.
+* **Catapult HLS (Optional):** This tool is required if you intend to modify the HLS C++ sources (e.g., `rtcore.cpp`, `bbox.h`, `ist.h`) and regenerate the RTL code. The repository already provides pre-generated RTL from HLS (e.g., in `src/concat_rtl.v`), so this tool is not strictly necessary if you are only using the existing HLS-generated RTL.
 
 ## Building and Running
 
@@ -75,7 +75,7 @@ Each of these configuration directories (`baseline-2`, `compress-2`, `AQB8-2`) g
 
 ## Key Components
 
-The core hardware units of the RT accelerator as described in the paper correspond to the following files in the codebase (C++ HLS files or SystemVerilog RTL files located in the `src/` directory of each configuration):
+The core hardware units of the RT accelerator as described in the paper correspond to the following files in the codebase (located in the `src/` directory of each configuration):
 
 * **BOX Unit** (Handles FP32 ray-box intersection tests):
     * `baseline-2/src/bbox.h`
@@ -86,7 +86,7 @@ The core hardware units of the RT accelerator as described in the paper correspo
 * **TRV Unit** (Handles BVH traversal logic):
     * `src/trv.sv` (Common across `AQB8-2`, `baseline-2`, `compress-2`)
 * **TRIG Unit** (Handles ray-triangle intersection tests):
-    * `src/ist.h` (Common HLS header across `AQB8-2`, `baseline-2`, `compress-2`)
+    * `src/ist.h` (Common across `AQB8-2`, `baseline-2`, `compress-2`)
 
 ## License
 
