@@ -87,7 +87,3 @@ The core hardware units of the RT accelerator as described in the paper correspo
     * `src/trv.sv` (Common across `AQB8-2`, `baseline-2`, `compress-2`)
 * **TRIG Unit** (Handles ray-triangle intersection tests):
     * `src/ist.h` (Common across `AQB8-2`, `baseline-2`, `compress-2`)
-
-## License
-
-Please refer to the license information provided in the `main` branch.
