@@ -75,9 +75,16 @@ Each implementation is maintained in its own dedicated **Git branch**, named to 
 ```bash
 git checkout <branch-name>
 ```
+For example, to switch to the AQB8 2-wide simulation environment:
 
 ```bash
 git checkout AQB8-2wide
+```
+
+Additionally, the hardware code for the AQB8 accelerator itself is available in a separate branch named `RTL`. To access the hardware design files, you can checkout this branch:
+
+```bash
+git checkout RTL
 ```
 
 ## Usage Instructions
