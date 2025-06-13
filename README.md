@@ -5,6 +5,8 @@
 
 [Paper Link](AQB8%20Energy-Efficient%20Ray%20Tracing%20Accelerator%20through%20Multi-Level%20Quantization.pdf)
 
+[Poster Link](AQB8%20ISCA%20Poster.pdf)
+
 ## Introduction
 
 **AQB8** is a ray tracing accelerator designed to operate on quantized BVH trees using a novel multi-level quantization technique. This approach enables ray traversal to use low-bit integer arithmetic, significantly reducing reliance on FP32 operations. The hardware is simpler and more area- and energy-efficient.
