@@ -3,9 +3,7 @@
 **Yen-Chieh Huang, Chen-Pin Yang, Tsung Tai Yeh**  
 *The 52nd Annual International Symposium on Computer Architecture (ISCA), June 21–25, 2025, Tokyo, Japan.*
 
-[Paper Link](AQB8%20Energy-Efficient%20Ray%20Tracing%20Accelerator%20through%20Multi-Level%20Quantization.pdf)
-
-[Poster Link](AQB8%20ISCA%20Poster.pdf)
+[Paper Link](AQB8%20Energy-Efficient%20Ray%20Tracing%20Accelerator%20through%20Multi-Level%20Quantization.pdf) [Poster Link](AQB8%20ISCA%20Poster.pdf) [PPT Link](AQB8%20PPT.pdf)
 
 ## Introduction
 
