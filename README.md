@@ -81,7 +81,7 @@ For example, to switch to the AQB8 2-wide simulation environment:
 git checkout AQB8-2wide
 ```
 
-Additionally, the hardware code for the AQB8 accelerator itself is available in a separate branch named `RTL`. To access the hardware design files, you can checkout this branch:
+Additionally, the hardware code for the AQB8 accelerator itself is available in [a separate branch named RTL](https://github.com/nycu-caslab/AQB8/tree/RTL). To access the hardware design files, you can checkout this branch:
 
 ```bash
 git checkout RTL
